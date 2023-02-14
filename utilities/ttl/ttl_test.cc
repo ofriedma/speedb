@@ -726,6 +726,217 @@ TEST_F(TtlTest, DeleteRangeTest) {
   CloseTtl();
 }
 
+TEST_F(TtlTest, SkipExpiredTtlGetTest) {
+  OpenTtl(1);
+  ASSERT_OK(db_ttl_->Put(WriteOptions(), "a", "val"));
+  env_->Sleep(2);
+  auto ropts = ReadOptions();
+  ropts.skip_expired_data = true;
+  std::string value;
+  ASSERT_TRUE(db_ttl_->Get(ropts, "a", &value).IsNotFound());
+  CloseTtl();
+}
+
+TEST_F(TtlTest, SkipExpiredTtlIterFirstTest) {
+  OpenTtl(1);
+  auto ropts = ReadOptions();
+  ropts.skip_expired_data = true;
+  ASSERT_OK(db_ttl_->Put(WriteOptions(), "a", "val"));
+  env_->Sleep(2);
+  ASSERT_OK(db_ttl_->Put(WriteOptions(), "b", "val"));
+  auto itr = db_ttl_->NewIterator(ropts);
+  std::string value;
+  itr->SeekToFirst();
+  ASSERT_TRUE(itr->Valid());
+  ASSERT_TRUE(itr->key().ToString() == "b");
+  delete itr;
+  CloseTtl();
+}
+
+TEST_F(TtlTest, SkipExpiredTtlIterLastTest) {
+  OpenTtl(1);
+  auto ropts = ReadOptions();
+  ropts.skip_expired_data = true;
+  ASSERT_OK(db_ttl_->Put(WriteOptions(), "c", "val"));
+  env_->Sleep(2);
+  ASSERT_OK(db_ttl_->Put(WriteOptions(), "b", "val"));
+  auto itr = db_ttl_->NewIterator(ropts);
+  std::string value;
+  itr->SeekToLast();
+  ASSERT_TRUE(itr->Valid());
+  ASSERT_TRUE(itr->key().ToString() == "b");
+  delete itr;
+  CloseTtl();
+}
+
+TEST_F(TtlTest, SkipExpiredTtlIterNextTest) {
+  OpenTtl(1);
+  auto ropts = ReadOptions();
+  ropts.skip_expired_data = true;
+  ASSERT_OK(db_ttl_->Put(WriteOptions(), "a", "val"));
+  ASSERT_OK(db_ttl_->Put(WriteOptions(), "c", "val"));
+  env_->Sleep(2);
+  ASSERT_OK(db_ttl_->Put(WriteOptions(), "b", "val"));
+  ASSERT_OK(db_ttl_->Put(WriteOptions(), "d", "val"));
+  auto itr = db_ttl_->NewIterator(ropts);
+  std::string value;
+  itr->SeekToFirst();
+  ASSERT_TRUE(itr->Valid());
+  itr->Next();
+  ASSERT_TRUE(itr->Valid());
+  ASSERT_TRUE(itr->key().ToString() == "d");
+  delete itr;
+  CloseTtl();
+}
+
+TEST_F(TtlTest, SkipExpiredTtlIterPrevTest) {
+  OpenTtl(1);
+  auto ropts = ReadOptions();
+  ropts.skip_expired_data = true;
+  ASSERT_OK(db_ttl_->Put(WriteOptions(), "d", "val"));
+  ASSERT_OK(db_ttl_->Put(WriteOptions(), "b", "val"));
+  env_->Sleep(2);
+  ASSERT_OK(db_ttl_->Put(WriteOptions(), "a", "val"));
+  ASSERT_OK(db_ttl_->Put(WriteOptions(), "c", "val"));
+  auto itr = db_ttl_->NewIterator(ropts);
+  std::string value;
+  itr->SeekToLast();
+  ASSERT_TRUE(itr->Valid());
+  itr->Prev();
+  ASSERT_TRUE(itr->Valid());
+  ASSERT_TRUE(itr->key().ToString() == "a");
+  delete itr;
+  CloseTtl();
+}
+
+TEST_F(TtlTest, SkipExpiredTtlIterSeekTest) {
+  OpenTtl(1);
+  auto ropts = ReadOptions();
+  ropts.skip_expired_data = true;
+  ASSERT_OK(db_ttl_->Put(WriteOptions(), "d", "val"));
+  ASSERT_OK(db_ttl_->Put(WriteOptions(), "b", "val"));
+  env_->Sleep(2);
+  ASSERT_OK(db_ttl_->Put(WriteOptions(), "a", "val"));
+  ASSERT_OK(db_ttl_->Put(WriteOptions(), "c", "val"));
+  auto itr = db_ttl_->NewIterator(ropts);
+  std::string value;
+  itr->Seek("b");
+  ASSERT_TRUE(itr->Valid());
+  ASSERT_TRUE(itr->key().ToString() == "c");
+  delete itr;
+  CloseTtl();
+}
+
+TEST_F(TtlTest, SkipExpiredTtlIterSeekPrevTest) {
+  OpenTtl(1);
+  auto ropts = ReadOptions();
+  ropts.skip_expired_data = true;
+  ASSERT_OK(db_ttl_->Put(WriteOptions(), "d", "val"));
+  ASSERT_OK(db_ttl_->Put(WriteOptions(), "b", "val"));
+  env_->Sleep(2);
+  ASSERT_OK(db_ttl_->Put(WriteOptions(), "a", "val"));
+  ASSERT_OK(db_ttl_->Put(WriteOptions(), "c", "val"));
+  auto itr = db_ttl_->NewIterator(ropts);
+  std::string value;
+  itr->SeekForPrev("b");
+  ASSERT_TRUE(itr->Valid());
+  ASSERT_TRUE(itr->key().ToString() == "a");
+  delete itr;
+  CloseTtl();
+}
+
+TEST_F(TtlTest, SkipExpiredTtlGetMultiTest) {
+  OpenTtl(1);
+  ASSERT_OK(db_ttl_->Put(WriteOptions(), "a", "val"));
+  env_->Sleep(4);
+  auto ropts = ReadOptions();
+  ropts.skip_expired_data = true;
+  std::vector<std::string> values;
+  ASSERT_TRUE(db_ttl_->MultiGet(ropts, {"a"}, &values)[0].IsNotFound());
+  ASSERT_TRUE(values[0].empty());
+  CloseTtl();
+}
+
+TEST_F(TtlTest, DoNotSkipUnExpiredTtlGetTest) {
+  OpenTtl(100);
+  ASSERT_OK(db_ttl_->Put(WriteOptions(), "a", "val"));
+  env_->Sleep(1);
+  auto ropts = ReadOptions();
+  ropts.skip_expired_data = true;
+  std::string value;
+  ASSERT_OK(db_ttl_->Get(ropts, "a", &value));
+  CloseTtl();
+}
+
+TEST_F(TtlTest, DoNotSkipReadOnlyTtlMultiGetTest) {
+  Options options;
+  options.create_if_missing = true;
+  options.env = env_.get();
+  auto ropts = ReadOptions();
+  ropts.skip_expired_data = true;
+  std::vector<std::string> values;
+  std::vector<ColumnFamilyHandle*> handles;
+  int ttl = 2;
+  ASSERT_OK(DBWithTTL::Open(options, dbname_, &db_ttl_, ttl));
+  ASSERT_OK(db_ttl_->Put(WriteOptions(), "a", "val"));
+  ASSERT_OK(db_ttl_->Put(WriteOptions(), "b", "val"));
+  db_ttl_->Close();
+  ASSERT_OK(DBWithTTL::Open(options, dbname_, &db_ttl_, ttl, true));
+  env_->Sleep(ttl + 1);
+  auto statuses = db_ttl_->MultiGet(ropts, {"a", "b"}, &values);
+  for (auto& status : statuses) {
+    ASSERT_TRUE(status.IsNotFound());
+  }
+  CloseTtl();
+}
+
+TEST_F(TtlTest, DoNotSkipReadOnlyTtlGetTest) {
+  Options options;
+  options.create_if_missing = true;
+  options.env = env_.get();
+  auto ropts = ReadOptions();
+  ropts.skip_expired_data = true;
+  std::string value;
+  std::vector<ColumnFamilyHandle*> handles;
+  int ttl = 2;
+  ASSERT_OK(DBWithTTL::Open(options, dbname_, &db_ttl_, ttl));
+  ASSERT_OK(db_ttl_->Put(WriteOptions(), "a", "val"));
+  db_ttl_->Close();
+  ASSERT_OK(DBWithTTL::Open(options, dbname_, &db_ttl_, ttl, true));
+  env_->Sleep(ttl + 1);
+  ASSERT_TRUE(db_ttl_->Get(ropts, "a", &value).IsNotFound());
+  CloseTtl();
+}
+
+TEST_F(TtlTest, ColumnFamiliesSkipExpiredTest) {
+  Options options;
+  options.create_if_missing = true;
+  options.env = env_.get();
+  auto ropts = ReadOptions();
+  ropts.skip_expired_data = true;
+  std::string value;
+  std::vector<ColumnFamilyHandle*> handles;
+  int ttl = 2;
+  ASSERT_OK(DBWithTTL::Open(options, dbname_, &db_ttl_));
+  ColumnFamilyHandle* first_handle;
+  ColumnFamilyHandle* second_handle;
+  ASSERT_OK(db_ttl_->CreateColumnFamilyWithTtl(options, "ttl_column_family_1",
+                                               &first_handle, ttl));
+  handles.push_back(first_handle);
+  ASSERT_OK(db_ttl_->CreateColumnFamilyWithTtl(options, "ttl_column_family_2",
+                                               &second_handle, 0));
+  handles.push_back(second_handle);
+  ASSERT_OK(db_ttl_->Put(WriteOptions(), handles[0], "a", "val"));
+  ASSERT_OK(db_ttl_->Put(WriteOptions(), handles[1], "a", "val"));
+  env_->Sleep(ttl + 1);
+  ASSERT_TRUE(db_ttl_->Get(ropts, handles[0], "a", &value).IsNotFound());
+  ASSERT_OK(db_ttl_->Get(ropts, handles[1], "a", &value));
+  for (auto& h : handles) {
+    delete h;
+    h = nullptr;
+  }
+}
+
 class DummyFilter : public CompactionFilter {
  public:
   bool Filter(int /*level*/, const Slice& /*key*/, const Slice& /*value*/,
