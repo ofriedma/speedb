@@ -73,6 +73,7 @@
 #ifndef ROCKSDB_LITE
 #include "rocksdb/utilities/replayer.h"
 #endif  // ROCKSDB_LITE
+#include "rocksdb/utilities/db_ttl.h"
 #include "rocksdb/utilities/sim_cache.h"
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
@@ -1933,6 +1934,12 @@ DEFINE_bool(track_and_verify_wals_in_manifest,
             ROCKSDB_NAMESPACE::Options().track_and_verify_wals_in_manifest,
             "If true, enable WAL tracking in the MANIFEST");
 
+DEFINE_bool(skip_expired_data, false, "If true, will skip keys expired by TTL");
+
+DEFINE_int32(ttl, -1,
+             "Opens the db with this ttl value if this is not -1. "
+             "Carefully specify a large value such that verifications on "
+             "deleted values don't fail");
 namespace {
 // Auxiliary collection of the indices of the DB-s to be used in the next group
 std::vector<uint64_t> db_idxs_to_use;
@@ -3744,6 +3751,7 @@ class Benchmark {
       read_options_.adaptive_readahead = FLAGS_adaptive_readahead;
       read_options_.async_io = FLAGS_async_io;
       read_options_.optimize_multiget_for_io = FLAGS_optimize_multiget_for_io;
+      read_options_.skip_expired_data = FLAGS_skip_expired_data;
 
       void (Benchmark::*method)(ThreadState*) = nullptr;
       void (Benchmark::*post_process_method)() = nullptr;
@@ -5338,6 +5346,19 @@ class Benchmark {
             FLAGS_secondary_update_interval, db));
       }
 #endif  // ROCKSDB_LITE
+    } else if (FLAGS_ttl > 0) {
+      std::vector<ColumnFamilyDescriptor> column_families;
+      column_families.push_back(ColumnFamilyDescriptor(
+          kDefaultColumnFamilyName, ColumnFamilyOptions(options)));
+      DBWithTTL* dbttl;
+      s = DBWithTTL::Open(options, db_name, column_families, &db->cfh, &dbttl,
+                          {(int32_t)FLAGS_ttl_seconds});
+      if (s.ok()) {
+        db->db = dbttl;
+      }
+      db->cfh.resize(1);
+      db->num_created = 1;
+      db->num_hot = 1;
     } else {
       std::vector<ColumnFamilyDescriptor> column_families;
       column_families.push_back(ColumnFamilyDescriptor(
