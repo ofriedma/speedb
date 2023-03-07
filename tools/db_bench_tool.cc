@@ -3761,6 +3761,14 @@ class Benchmark {
 
       int num_repeat = 1;
       int num_warmup = 0;
+      if (!gflags::GetCommandLineFlagInfoOrDie("ttl").is_default &&
+          FLAGS_ttl < 1) {
+        ErrorExit("ttl must be positive value");
+      }
+      if (gflags::GetCommandLineFlagInfoOrDie("ttl").is_default &&
+          FLAGS_skip_expired_data) {
+        ErrorExit("ttl must be set to use skip_expired_data");
+      }
       if (!name.empty() && *name.rbegin() == ']') {
         auto it = name.find('[');
         if (it == std::string::npos) {
@@ -5248,8 +5256,18 @@ class Benchmark {
       }
 #ifndef ROCKSDB_LITE
       if (FLAGS_readonly) {
-        s = DB::OpenForReadOnly(options, db_name, column_families,
-            &db->cfh, &db->db);
+        if (FLAGS_ttl > 0) {
+          DBWithTTL* dbttl;
+          // true means read only
+          s = DBWithTTL::Open(options, db_name, column_families, &db->cfh,
+                              &dbttl, {FLAGS_ttl}, true);
+          if (s.ok()) {
+            db->db = dbttl;
+          }
+        } else {
+          s = DB::OpenForReadOnly(options, db_name, column_families, &db->cfh,
+                                  &db->db);
+        }
       } else if (FLAGS_optimistic_transaction_db) {
         s = OptimisticTransactionDB::Open(options, db_name, column_families,
                                           &db->cfh, &db->opt_txn_db);
@@ -5270,7 +5288,16 @@ class Benchmark {
           db->db = ptr;
         }
       } else {
-        s = DB::Open(options, db_name, column_families, &db->cfh, &db->db);
+        if (FLAGS_ttl > 0) {
+          DBWithTTL* dbttl;
+          s = DBWithTTL::Open(options, db_name, column_families, &db->cfh,
+                              &dbttl, {FLAGS_ttl});
+          if (s.ok()) {
+            db->db = dbttl;
+          }
+        } else {
+          s = DB::Open(options, db_name, column_families, &db->cfh, &db->db);
+        }
       }
 #else
       s = DB::Open(options, db_name, column_families, &db->cfh, &db->db);
@@ -5281,7 +5308,16 @@ class Benchmark {
       db->cfh_idx_to_prob = std::move(cfh_idx_to_prob);
 #ifndef ROCKSDB_LITE
     } else if (FLAGS_readonly) {
-      s = DB::OpenForReadOnly(options, db_name, &db->db);
+      if (FLAGS_ttl > 0) {
+        DBWithTTL* dbttl;
+        // true means read only
+        s = DBWithTTL::Open(options, db_name, &dbttl, FLAGS_ttl, true);
+        if (s.ok()) {
+          db->db = dbttl;
+        }
+      } else {
+        s = DB::OpenForReadOnly(options, db_name, &db->db);
+      }
     } else if (FLAGS_optimistic_transaction_db) {
       s = OptimisticTransactionDB::Open(options, db_name, &db->opt_txn_db);
       if (s.ok()) {
@@ -5352,13 +5388,13 @@ class Benchmark {
           kDefaultColumnFamilyName, ColumnFamilyOptions(options)));
       DBWithTTL* dbttl;
       s = DBWithTTL::Open(options, db_name, column_families, &db->cfh, &dbttl,
-                          {(int32_t)FLAGS_ttl_seconds});
+                          {FLAGS_ttl});
       if (s.ok()) {
         db->db = dbttl;
+        db->cfh.resize(1);
+        db->num_created = 1;
+        db->num_hot = 1;
       }
-      db->cfh.resize(1);
-      db->num_created = 1;
-      db->num_hot = 1;
     } else {
       std::vector<ColumnFamilyDescriptor> column_families;
       column_families.push_back(ColumnFamilyDescriptor(
