@@ -5254,12 +5254,12 @@ class Benchmark {
 #ifndef ROCKSDB_LITE
       if (FLAGS_readonly) {
         if (FLAGS_ttl > 0) {
-          DBWithTTL* dbttl;
+          DBWithTTL* db_with_ttl;
           // true means read only
           s = DBWithTTL::Open(options, db_name, column_families, &db->cfh,
-                              &dbttl, {FLAGS_ttl}, true);
+                              &db_with_ttl, {FLAGS_ttl}, true);
           if (s.ok()) {
-            db->db = dbttl;
+            db->db = db_with_ttl;
           }
         } else {
           s = DB::OpenForReadOnly(options, db_name, column_families, &db->cfh,
@@ -5286,11 +5286,11 @@ class Benchmark {
         }
       } else {
         if (FLAGS_ttl > 0) {
-          DBWithTTL* dbttl;
+          DBWithTTL* db_with_ttl;
           s = DBWithTTL::Open(options, db_name, column_families, &db->cfh,
-                              &dbttl, {FLAGS_ttl});
+                              &db_with_ttl, {FLAGS_ttl});
           if (s.ok()) {
-            db->db = dbttl;
+            db->db = db_with_ttl;
           }
         } else {
           s = DB::Open(options, db_name, column_families, &db->cfh, &db->db);
@@ -5306,11 +5306,11 @@ class Benchmark {
 #ifndef ROCKSDB_LITE
     } else if (FLAGS_readonly) {
       if (FLAGS_ttl > 0) {
-        DBWithTTL* dbttl;
+        DBWithTTL* db_with_ttl;
         // true means read only
-        s = DBWithTTL::Open(options, db_name, &dbttl, FLAGS_ttl, true);
+        s = DBWithTTL::Open(options, db_name, &db_with_ttl, FLAGS_ttl, true);
         if (s.ok()) {
-          db->db = dbttl;
+          db->db = db_with_ttl;
         }
       } else {
         s = DB::OpenForReadOnly(options, db_name, &db->db);
@@ -5383,11 +5383,11 @@ class Benchmark {
       std::vector<ColumnFamilyDescriptor> column_families;
       column_families.push_back(ColumnFamilyDescriptor(
           kDefaultColumnFamilyName, ColumnFamilyOptions(options)));
-      DBWithTTL* dbttl;
-      s = DBWithTTL::Open(options, db_name, column_families, &db->cfh, &dbttl,
-                          {FLAGS_ttl});
+      DBWithTTL* db_with_ttl;
+      s = DBWithTTL::Open(options, db_name, column_families, &db->cfh,
+                          &db_with_ttl, {FLAGS_ttl});
       if (s.ok()) {
-        db->db = dbttl;
+        db->db = db_with_ttl;
         db->cfh.resize(1);
         db->num_created = 1;
         db->num_hot = 1;
