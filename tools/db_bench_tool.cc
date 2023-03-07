@@ -1936,10 +1936,7 @@ DEFINE_bool(track_and_verify_wals_in_manifest,
 
 DEFINE_bool(skip_expired_data, false, "If true, will skip keys expired by TTL");
 
-DEFINE_int32(ttl, -1,
-             "Opens the db with this ttl value if this is not -1. "
-             "Carefully specify a large value such that verifications on "
-             "deleted values don't fail");
+DEFINE_int32(ttl, -1, "Opens the db with this ttl value if value is positive");
 namespace {
 // Auxiliary collection of the indices of the DB-s to be used in the next group
 std::vector<uint64_t> db_idxs_to_use;
