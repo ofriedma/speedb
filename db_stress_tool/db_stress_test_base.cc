@@ -682,6 +682,9 @@ void StressTest::OperateDb(ThreadState* thread) {
   read_opts.async_io = FLAGS_async_io;
   read_opts.adaptive_readahead = FLAGS_adaptive_readahead;
   read_opts.readahead_size = FLAGS_readahead_size;
+  if (gflags::GetCommandLineFlagInfoOrDie("ttl").is_default && FLAGS_skip_expired_data) {
+    auto error_msg = IOStatus::InvalidArgument("skip_expired_data must be set with ttl");
+  }
   WriteOptions write_opts;
   if (FLAGS_rate_limit_auto_wal_flush) {
     write_opts.rate_limiter_priority = Env::IO_USER;
