@@ -6392,7 +6392,12 @@ class Benchmark {
           options.timestamp = &ts;
           ts_ptr = &ts_ret;
         }
-        auto status = db->Get(options, key, &value, ts_ptr);
+        Status status;
+        if (user_timestamp_size_ > 0) {
+          status = db->Get(options, key, &value, ts_ptr);
+        } else {
+          status = db->Get(options, key, &value);
+        }
         if (status.ok()) {
           ++found;
         } else if (!status.IsNotFound()) {
@@ -6525,8 +6530,10 @@ class Benchmark {
               options, cfh, key, pinnable_vals.data(),
               &get_merge_operands_options, &number_of_operands);
         }
-      } else {
+      } else if (user_timestamp_size_ > 0) {
         s = db_with_cfh->db->Get(options, cfh, key, &pinnable_val, ts_ptr);
+      } else {
+        s = db_with_cfh->db->Get(options, cfh, key, &pinnable_val);
       }
 
       if (s.ok()) {
