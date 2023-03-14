@@ -41,6 +41,7 @@ class LDBCommand {
   static const std::string ARG_VALUE_HEX;
   static const std::string ARG_CF_NAME;
   static const std::string ARG_TTL;
+  static const std::string ARG_SKIP_EXPIRED_DATA;
   static const std::string ARG_TTL_START;
   static const std::string ARG_TTL_END;
   static const std::string ARG_TIMESTAMP;
@@ -73,6 +74,7 @@ class LDBCommand {
   static const std::string ARG_PREPOPULATE_BLOB_CACHE;
   static const std::string ARG_DECODE_BLOB_INDEX;
   static const std::string ARG_DUMP_UNCOMPRESSED_BLOBS;
+  static const std::string ARG_INTERACTIVE;
 
   struct ParsedParams {
     std::string cmd;
@@ -176,6 +178,9 @@ class LDBCommand {
   /** If true, the value is treated as timestamp suffixed */
   bool is_db_ttl_;
 
+  /** If true will use skip_expired_data flag in the read options*/
+  bool is_skip_expired_data_;
+
   // If true, the kvs are output with their insert/modify timestamp in a ttl db
   bool timestamp_;
 
@@ -206,6 +211,9 @@ class LDBCommand {
 
   /** Shared pointer to underlying environment if applicable **/
   std::shared_ptr<Env> env_guard_;
+
+  /** ttl value for dbwithttl::open **/
+  int32_t ttl_;
 
   bool ParseKeyValue(const std::string& line, std::string* key,
                      std::string* value, bool is_key_hex, bool is_value_hex);

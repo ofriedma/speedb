@@ -64,6 +64,7 @@ const std::string LDBCommand::ARG_KEY_HEX = "key_hex";
 const std::string LDBCommand::ARG_VALUE_HEX = "value_hex";
 const std::string LDBCommand::ARG_CF_NAME = "column_family";
 const std::string LDBCommand::ARG_TTL = "ttl";
+const std::string LDBCommand::ARG_SKIP_EXPIRED_DATA = "skip_expired_data";
 const std::string LDBCommand::ARG_TTL_START = "start_time";
 const std::string LDBCommand::ARG_TTL_END = "end_time";
 const std::string LDBCommand::ARG_TIMESTAMP = "timestamp";
@@ -107,6 +108,7 @@ const std::string LDBCommand::ARG_PREPOPULATE_BLOB_CACHE =
 const std::string LDBCommand::ARG_DECODE_BLOB_INDEX = "decode_blob_index";
 const std::string LDBCommand::ARG_DUMP_UNCOMPRESSED_BLOBS =
     "dump_uncompressed_blobs";
+const std::string LDBCommand::ARG_INTERACTIVE = "interactive";
 
 const char* LDBCommand::DELIM = " ==> ";
 
@@ -379,12 +381,14 @@ LDBCommand::LDBCommand(const std::map<std::string, std::string>& options,
       is_key_hex_(false),
       is_value_hex_(false),
       is_db_ttl_(false),
+      is_skip_expired_data_(false),
       timestamp_(false),
       try_load_options_(false),
       create_if_missing_(false),
       option_map_(options),
       flags_(flags),
-      valid_cmd_line_options_(valid_cmd_line_options) {
+      valid_cmd_line_options_(valid_cmd_line_options),
+      ttl_(-1) {
   auto itr = options.find(ARG_DB);
   if (itr != options.end()) {
     db_path_ = itr->second;
@@ -415,7 +419,10 @@ LDBCommand::LDBCommand(const std::map<std::string, std::string>& options,
 
   is_key_hex_ = IsKeyHex(options, flags);
   is_value_hex_ = IsValueHex(options, flags);
-  is_db_ttl_ = IsFlagPresent(flags, ARG_TTL);
+  ParseIntOption(option_map_, ARG_TTL,
+                   ttl_, exec_state_);
+  is_db_ttl_ = ((ttl_ != -1) || IsFlagPresent(flags, ARG_TTL));
+  is_skip_expired_data_ = IsFlagPresent(flags, ARG_SKIP_EXPIRED_DATA);
   timestamp_ = IsFlagPresent(flags, ARG_TIMESTAMP);
   try_load_options_ = IsTryLoadOptions(options, flags);
   force_consistency_checks_ =
@@ -440,22 +447,35 @@ void LDBCommand::OpenDB() {
   Status st;
   std::vector<ColumnFamilyHandle*> handles_opened;
   if (is_db_ttl_) {
-    // ldb doesn't yet support TTL DB with multiple column families
-    if (!column_family_name_.empty() || !column_families_.empty()) {
-      exec_state_ = LDBCommandExecuteResult::Failed(
-          "ldb doesn't support TTL DB with multiple column families");
-    }
     if (!secondary_path_.empty()) {
       exec_state_ = LDBCommandExecuteResult::Failed(
           "Open as secondary is not supported for TTL DB yet.");
     }
+    std::vector<int32_t> ttls;
+    for(size_t i = 0; i < column_families_.size();++i) {
+      ttls.push_back(ttl_);
+    }
     if (is_read_only_) {
-      st = DBWithTTL::Open(options_, db_path_, &db_ttl_, 0, true);
+      if (!column_families_.empty()) {
+        st = DBWithTTL::Open(options_, db_path_, column_families_, &handles_opened,
+                                &db_ttl_, ttls, true);
+      } else {
+        st = DBWithTTL::Open(options_, db_path_, &db_ttl_, ttl_, true);
+      }
     } else {
-      st = DBWithTTL::Open(options_, db_path_, &db_ttl_);
+      if (!column_families_.empty()) {
+        st = DBWithTTL::Open(options_, db_path_, column_families_, &handles_opened,
+                                &db_ttl_, ttls);
+      } else {
+        st = DBWithTTL::Open(options_, db_path_, &db_ttl_, ttl_);
+      }
     }
     db_ = db_ttl_;
   } else {
+    if (is_skip_expired_data_) {
+      exec_state_ = LDBCommandExecuteResult::Failed(
+          "Open with --" + ARG_SKIP_EXPIRED_DATA + " but without --" + ARG_TTL);
+    }
     if (is_read_only_ && secondary_path_.empty()) {
       if (column_families_.empty()) {
         st = DB::OpenForReadOnly(options_, db_path_, &db_);
@@ -500,7 +520,7 @@ void LDBCommand::OpenDB() {
     }
   } else {
     // We successfully opened DB in single column family mode.
-    assert(column_families_.empty());
+    //assert(column_families_.empty());
     if (column_family_name_ != kDefaultColumnFamilyName) {
       exec_state_ = LDBCommandExecuteResult::Failed(
           "Non-existing column family " + column_family_name_);
@@ -1087,6 +1107,7 @@ std::string LDBCommand::HelpRangeCmdArgs() {
   str_stream << " ";
   str_stream << "[--" << ARG_FROM << "] ";
   str_stream << "[--" << ARG_TO << "] ";
+  str_stream << "[--" << ARG_TTL << "] ";
   return str_stream.str();
 }
 
@@ -1118,8 +1139,7 @@ bool LDBCommand::IsTryLoadOptions(
   // to false. TODO: TTL_DB may need to fix that, otherwise it's unable to open
   // DB which has incompatible setting with default options.
   bool default_val = (options.find(ARG_DB) != options.end()) &&
-                     !IsFlagPresent(flags, ARG_CREATE_IF_MISSING) &&
-                     !IsFlagPresent(flags, ARG_TTL);
+                     !IsFlagPresent(flags, ARG_CREATE_IF_MISSING);
   return ParseBooleanOption(options, ARG_TRY_LOAD_OPTIONS, default_val);
 }
 
@@ -1768,7 +1788,7 @@ InternalDumpCommand::InternalDumpCommand(
                  BuildCmdLineOptions(
                      {ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX, ARG_FROM, ARG_TO,
                       ARG_MAX_KEYS, ARG_COUNT_ONLY, ARG_COUNT_DELIM, ARG_STATS,
-                      ARG_INPUT_KEY_HEX, ARG_DECODE_BLOB_INDEX})),
+                      ARG_INPUT_KEY_HEX, ARG_DECODE_BLOB_INDEX, ARG_TTL})),
       has_from_(false),
       has_to_(false),
       max_keys_(-1),
@@ -1817,6 +1837,7 @@ void InternalDumpCommand::Help(std::string& ret) {
   ret.append(" [--" + ARG_COUNT_DELIM + "=<char>]");
   ret.append(" [--" + ARG_STATS + "]");
   ret.append(" [--" + ARG_DECODE_BLOB_INDEX + "]");
+  ret.append(" [--" + ARG_TTL + "[=<ttl>]]");
   ret.append("\n");
 }
 
@@ -1884,9 +1905,27 @@ void InternalDumpCommand::DoCommand() {
     if (!count_only_ && !count_delim_) {
       std::string key = ikey.DebugString(is_key_hex_);
       Slice value(key_version.value);
+      std::string valuestr = value.ToString(is_value_hex_);
+      // support value with ts
+      if (is_db_ttl_) {
+        // keep in mind it might in some scenarios strip the value if opened a non ttl db with ttl.
+        // The sanity check is unable to test if the value stripped is ok or not.
+        // do not open a regular db with the ttl flag
+        st = DBWithTTLImpl::SanityCheckTimestamp(valuestr);
+        if (!st.ok()) {
+          fprintf(stderr, "%s => error striping ts, error: %s \n", key.c_str(),st.ToString().c_str());
+          continue;
+        }
+        // keep in mind it might in some scenarios strip the value if opened a non ttl db with ttl.
+        st = DBWithTTLImpl::StripTS(&valuestr);
+        if (!st.ok()) {
+          fprintf(stderr, "%s => error striping ts, error: %s \n", key.c_str(),st.ToString().c_str());
+          continue;
+        }
+      }
       if (!decode_blob_index_ || value_type != kTypeBlobIndex) {
         fprintf(stdout, "%s => %s\n", key.c_str(),
-                value.ToString(is_value_hex_).c_str());
+                valuestr.c_str());
       } else {
         BlobIndex blob_index;
 
@@ -1923,7 +1962,7 @@ DBDumperCommand::DBDumperCommand(
     : LDBCommand(
           options, flags, true,
           BuildCmdLineOptions(
-              {ARG_TTL, ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX, ARG_FROM, ARG_TO,
+              {ARG_TTL, ARG_SKIP_EXPIRED_DATA, ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX, ARG_FROM, ARG_TO,
                ARG_MAX_KEYS, ARG_COUNT_ONLY, ARG_COUNT_DELIM, ARG_STATS,
                ARG_TTL_START, ARG_TTL_END, ARG_TTL_BUCKET, ARG_TIMESTAMP,
                ARG_PATH, ARG_DECODE_BLOB_INDEX, ARG_DUMP_UNCOMPRESSED_BLOBS})),
@@ -1998,7 +2037,8 @@ void DBDumperCommand::Help(std::string& ret) {
   ret.append("  ");
   ret.append(DBDumperCommand::Name());
   ret.append(HelpRangeCmdArgs());
-  ret.append(" [--" + ARG_TTL + "]");
+  ret.append(" [--" + ARG_TTL + "[=<ttl>]]");
+  ret.append(" [--" + ARG_SKIP_EXPIRED_DATA + "]");
   ret.append(" [--" + ARG_MAX_KEYS + "=<N>]");
   ret.append(" [--" + ARG_TIMESTAMP + "]");
   ret.append(" [--" + ARG_COUNT_ONLY + "]");
@@ -2085,6 +2125,7 @@ void DBDumperCommand::DoDumpCommand() {
   // Setup key iterator
   ReadOptions scan_read_opts;
   scan_read_opts.total_order_seek = true;
+  scan_read_opts.skip_expired_data = is_skip_expired_data_;
   Iterator* iter = db_->NewIterator(scan_read_opts, GetCfHandle());
   Status st = iter->status();
   if (!st.ok()) {
@@ -2752,7 +2793,7 @@ GetCommand::GetCommand(const std::vector<std::string>& params,
                        const std::vector<std::string>& flags)
     : LDBCommand(
           options, flags, true,
-          BuildCmdLineOptions({ARG_TTL, ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX})) {
+          BuildCmdLineOptions({ARG_TTL, ARG_SKIP_EXPIRED_DATA, ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX})) {
   if (params.size() != 1) {
     exec_state_ = LDBCommandExecuteResult::Failed(
         "<key> must be specified for the get command");
@@ -2769,7 +2810,8 @@ void GetCommand::Help(std::string& ret) {
   ret.append("  ");
   ret.append(GetCommand::Name());
   ret.append(" <key>");
-  ret.append(" [--" + ARG_TTL + "]");
+  ret.append(" [--" + ARG_TTL + "[=<ttl>]]");
+  ret.append(" [--" + ARG_SKIP_EXPIRED_DATA + "]");
   ret.append("\n");
 }
 
@@ -2880,7 +2922,7 @@ void BatchPutCommand::Help(std::string& ret) {
   ret.append(BatchPutCommand::Name());
   ret.append(" <key> <value> [<key> <value>] [..]");
   ret.append(" [--" + ARG_CREATE_IF_MISSING + "]");
-  ret.append(" [--" + ARG_TTL + "]");
+  ret.append(" [--" + ARG_TTL + "[=<ttl>]]");
   ret.append("\n");
 }
 
@@ -2928,7 +2970,7 @@ ScanCommand::ScanCommand(const std::vector<std::string>& /*params*/,
                          const std::vector<std::string>& flags)
     : LDBCommand(
           options, flags, true,
-          BuildCmdLineOptions({ARG_TTL, ARG_NO_VALUE, ARG_HEX, ARG_KEY_HEX,
+          BuildCmdLineOptions({ARG_TTL, ARG_SKIP_EXPIRED_DATA, ARG_NO_VALUE, ARG_HEX, ARG_KEY_HEX,
                                ARG_TO, ARG_VALUE_HEX, ARG_FROM, ARG_TIMESTAMP,
                                ARG_MAX_KEYS, ARG_TTL_START, ARG_TTL_END})),
       start_key_specified_(false),
@@ -2980,7 +3022,8 @@ void ScanCommand::Help(std::string& ret) {
   ret.append("  ");
   ret.append(ScanCommand::Name());
   ret.append(HelpRangeCmdArgs());
-  ret.append(" [--" + ARG_TTL + "]");
+  ret.append(" [--" + ARG_TTL + "[=<ttl>]]");
+  ret.append(" [--" + ARG_SKIP_EXPIRED_DATA + "]");
   ret.append(" [--" + ARG_TIMESTAMP + "]");
   ret.append(" [--" + ARG_MAX_KEYS + "=<N>q] ");
   ret.append(" [--" + ARG_TTL_START + "=<N>:- is inclusive]");
@@ -2998,6 +3041,7 @@ void ScanCommand::DoCommand() {
   int num_keys_scanned = 0;
   ReadOptions scan_read_opts;
   scan_read_opts.total_order_seek = true;
+  scan_read_opts.skip_expired_data = is_skip_expired_data_;
   Iterator* it = db_->NewIterator(scan_read_opts, GetCfHandle());
   if (start_key_specified_) {
     it->Seek(start_key_);
@@ -3214,7 +3258,7 @@ void PutCommand::Help(std::string& ret) {
   ret.append(PutCommand::Name());
   ret.append(" <key> <value>");
   ret.append(" [--" + ARG_CREATE_IF_MISSING + "]");
-  ret.append(" [--" + ARG_TTL + "]");
+  ret.append(" [--" + ARG_TTL + "[=<ttl>]]");
   ret.append("\n");
 }
 
@@ -3256,7 +3300,7 @@ DBQuerierCommand::DBQuerierCommand(
 void DBQuerierCommand::Help(std::string& ret) {
   ret.append("  ");
   ret.append(DBQuerierCommand::Name());
-  ret.append(" [--" + ARG_TTL + "]");
+  ret.append(" [--" + ARG_TTL + "[=<ttl>]]");
   ret.append("\n");
   ret.append("    Starts a REPL shell.  Type help for list of available "
              "commands.");
@@ -3317,6 +3361,7 @@ void DBQuerierCommand::DoCommand() {
         oss << "put " << key << "=>" << value << " failed: " << s.ToString();
       }
     } else if (cmd == GET_CMD && tokens.size() == 2) {
+      read_options.skip_expired_data = is_skip_expired_data_;
       key = (is_key_hex_ ? HexToString(tokens[1]) : tokens[1]);
       s = db_->Get(read_options, GetCfHandle(), Slice(key), &value);
       if (s.ok()) {

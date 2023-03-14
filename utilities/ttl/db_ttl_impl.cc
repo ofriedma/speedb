@@ -433,7 +433,7 @@ Status DBWithTTLImpl::SanityCheckTimestamp(const Slice& str) {
     return Status::Corruption("Error: value's length less than timestamp's\n");
   }
   // Checks that TS is not lesser than kMinTimestamp
-  // Gaurds against corruption & normal database opened incorrectly in ttl mode
+  // Guards against corruption & normal database opened incorrectly in ttl mode
   int32_t timestamp_value = DecodeFixed32(str.data() + str.size() - kTSLength);
   if (timestamp_value < kMinTimestamp) {
     return Status::Corruption("Error: Timestamp < ttl feature release time!\n");
