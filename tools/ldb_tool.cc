@@ -95,6 +95,7 @@ void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
   PutCommand::Help(ret);
   GetCommand::Help(ret);
   BatchPutCommand::Help(ret);
+  MultiGetCommand::Help(ret);
   ScanCommand::Help(ret);
   DeleteCommand::Help(ret);
   DeleteRangeCommand::Help(ret);

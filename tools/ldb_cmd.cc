@@ -109,6 +109,7 @@ const std::string LDBCommand::ARG_DECODE_BLOB_INDEX = "decode_blob_index";
 const std::string LDBCommand::ARG_DUMP_UNCOMPRESSED_BLOBS =
     "dump_uncompressed_blobs";
 const std::string LDBCommand::ARG_INTERACTIVE = "interactive";
+const std::string LDBCommand::ARG_KEYS_ONLY = "keys_only";
 
 const char* LDBCommand::DELIM = " ==> ";
 
@@ -214,6 +215,9 @@ LDBCommand* LDBCommand::SelectCommand(const ParsedParams& parsed_params) {
                           parsed_params.flags);
   } else if (parsed_params.cmd == BatchPutCommand::Name()) {
     return new BatchPutCommand(parsed_params.cmd_params,
+                               parsed_params.option_map, parsed_params.flags);
+  } else if (parsed_params.cmd == MultiGetCommand::Name()) {
+    return new MultiGetCommand(parsed_params.cmd_params,
                                parsed_params.option_map, parsed_params.flags);
   } else if (parsed_params.cmd == ScanCommand::Name()) {
     return new ScanCommand(parsed_params.cmd_params, parsed_params.option_map,
@@ -422,6 +426,7 @@ LDBCommand::LDBCommand(const std::map<std::string, std::string>& options,
   ParseIntOption(option_map_, ARG_TTL,
                    ttl_, exec_state_);
   is_db_ttl_ = ((ttl_ != -1) || IsFlagPresent(flags, ARG_TTL));
+  is_no_value_ = IsFlagPresent(flags, ARG_NO_VALUE);
   is_skip_expired_data_ = IsFlagPresent(flags, ARG_SKIP_EXPIRED_DATA);
   timestamp_ = IsFlagPresent(flags, ARG_TIMESTAMP);
   try_load_options_ = IsTryLoadOptions(options, flags);
@@ -1786,7 +1791,7 @@ InternalDumpCommand::InternalDumpCommand(
     const std::vector<std::string>& flags)
     : LDBCommand(options, flags, true,
                  BuildCmdLineOptions(
-                     {ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX, ARG_FROM, ARG_TO,
+                     {ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX, ARG_NO_VALUE, ARG_FROM, ARG_TO,
                       ARG_MAX_KEYS, ARG_COUNT_ONLY, ARG_COUNT_DELIM, ARG_STATS,
                       ARG_INPUT_KEY_HEX, ARG_DECODE_BLOB_INDEX, ARG_TTL})),
       has_from_(false),
@@ -1834,6 +1839,7 @@ void InternalDumpCommand::Help(std::string& ret) {
   ret.append(" [--" + ARG_INPUT_KEY_HEX + "]");
   ret.append(" [--" + ARG_MAX_KEYS + "=<N>]");
   ret.append(" [--" + ARG_COUNT_ONLY + "]");
+  ret.append(" [--" + ARG_NO_VALUE + "]");
   ret.append(" [--" + ARG_COUNT_DELIM + "=<char>]");
   ret.append(" [--" + ARG_STATS + "]");
   ret.append(" [--" + ARG_DECODE_BLOB_INDEX + "]");
@@ -1924,8 +1930,13 @@ void InternalDumpCommand::DoCommand() {
         }
       }
       if (!decode_blob_index_ || value_type != kTypeBlobIndex) {
-        fprintf(stdout, "%s => %s\n", key.c_str(),
-                valuestr.c_str());
+        if (is_no_value_) {
+          fprintf(stdout, "%s\n", key.c_str());
+        } else {
+          fprintf(stdout, "%s => %s\n", key.c_str(),
+                  valuestr.c_str());
+        }
+
       } else {
         BlobIndex blob_index;
 
@@ -1933,8 +1944,12 @@ void InternalDumpCommand::DoCommand() {
         if (!s.ok()) {
           fprintf(stderr, "%s => error decoding blob index =>\n", key.c_str());
         } else {
-          fprintf(stdout, "%s => %s\n", key.c_str(),
+          if (is_no_value_) { 
+            fprintf(stdout, "%s\n", key.c_str());
+          } else {
+            fprintf(stdout, "%s => %s\n", key.c_str(),
                   blob_index.DebugString(is_value_hex_).c_str());
+          }
         }
       }
     }
@@ -1962,7 +1977,7 @@ DBDumperCommand::DBDumperCommand(
     : LDBCommand(
           options, flags, true,
           BuildCmdLineOptions(
-              {ARG_TTL, ARG_SKIP_EXPIRED_DATA, ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX, ARG_FROM, ARG_TO,
+              {ARG_TTL, ARG_SKIP_EXPIRED_DATA, ARG_KEYS_ONLY, ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX, ARG_FROM, ARG_TO,
                ARG_MAX_KEYS, ARG_COUNT_ONLY, ARG_COUNT_DELIM, ARG_STATS,
                ARG_TTL_START, ARG_TTL_END, ARG_TTL_BUCKET, ARG_TIMESTAMP,
                ARG_PATH, ARG_DECODE_BLOB_INDEX, ARG_DUMP_UNCOMPRESSED_BLOBS})),
@@ -2177,7 +2192,7 @@ void DBDumperCommand::DoDumpCommand() {
   }
 
   HistogramImpl vsize_hist;
-
+  HistogramImpl ksize_hist;
   for (; iter->Valid(); iter->Next()) {
     int rawtime = 0;
     // If end marker was specified, we stop before it
@@ -2222,8 +2237,9 @@ void DBDumperCommand::DoDumpCommand() {
 
     }
 
-    if (count_only_) {
+    if (count_only_ || print_stats_) {
       vsize_hist.Add(iter->value().size());
+      ksize_hist.Add(iter->key().size());
     }
 
     if (!count_only_ && !count_delim_) {
@@ -2247,8 +2263,12 @@ void DBDumperCommand::DoDumpCommand() {
     fprintf(stdout, "Keys in range: %" PRIu64 "\n", count);
   }
 
-  if (count_only_) {
+  if (count_only_ || print_stats_) {
+    fprintf(stdout, "\nKey size distribution: \n");
+    fprintf(stdout, "\nSum of keys' sizes in range: %ld\n",ksize_hist.sum());
+    fprintf(stdout, "%s\n", ksize_hist.ToString().c_str());
     fprintf(stdout, "Value size distribution: \n");
+    fprintf(stdout, "\nSum of values' sizes in range: %ld\n",vsize_hist.sum());
     fprintf(stdout, "%s\n", vsize_hist.ToString().c_str());
   }
   // Clean up
@@ -2821,7 +2841,9 @@ void GetCommand::DoCommand() {
     return;
   }
   std::string value;
-  Status st = db_->Get(ReadOptions(), GetCfHandle(), key_, &value);
+  ReadOptions read_opts;
+  read_opts.skip_expired_data = is_skip_expired_data_;
+  Status st = db_->Get(read_opts, GetCfHandle(), key_, &value);
   if (st.ok()) {
     if (is_value_hex_) {
       value = StringToHex(value);
@@ -2922,7 +2944,7 @@ void BatchPutCommand::Help(std::string& ret) {
   ret.append(BatchPutCommand::Name());
   ret.append(" <key> <value> [<key> <value>] [..]");
   ret.append(" [--" + ARG_CREATE_IF_MISSING + "]");
-  ret.append(" [--" + ARG_TTL + "[=<ttl>]]");
+  ret.append(" [--" + ARG_TTL + "]");
   ret.append("\n");
 }
 
@@ -2963,6 +2985,53 @@ void BatchPutCommand::OverrideBaseOptions() {
   options_.create_if_missing = create_if_missing_;
 }
 
+// ----------------------------------------------------------------------------
+MultiGetCommand::MultiGetCommand(
+    const std::vector<std::string>& params,
+    const std::map<std::string, std::string>& options,
+    const std::vector<std::string>& flags)
+    : LDBCommand(options, flags, false,
+                 BuildCmdLineOptions({ARG_TTL, ARG_SKIP_EXPIRED_DATA, ARG_HEX, ARG_KEY_HEX,
+                                      ARG_VALUE_HEX})) {
+  if (params.size() < 1) {
+    exec_state_ = LDBCommandExecuteResult::Failed(
+        "At least one <key> must be specified multiget.");
+  }
+  keys_ = params;
+}
+void MultiGetCommand::Help(std::string& ret) {
+  ret.append("  ");
+  ret.append(MultiGetCommand::Name());
+  ret.append(" <key> [<key>] [..]");
+  ret.append(" [--" + ARG_TTL + "[=<ttl>]]");
+  ret.append("\n");
+}
+
+void MultiGetCommand::DoCommand() {
+  if (!db_) {
+    assert(GetExecuteState().IsFailed());
+    return;
+  }
+
+  Status st;
+  std::vector<Status> statuses;
+  std::vector<std::string> values;
+  ReadOptions ropts;
+  ropts.skip_expired_data = is_skip_expired_data_;
+  std::vector<Slice> keys;
+  for (const auto &key : keys_) {
+    keys.push_back(key);
+  }
+  statuses = db_->MultiGet(ropts, keys, &values);
+  for (size_t i = 0; i < statuses.size(); ++i) {
+    if (statuses[i].ok()) {
+      fprintf(stdout, "%s\n", PrintKeyValue(keys[i].ToString().c_str(), values[i],
+              is_key_hex_, is_value_hex_).c_str());
+    } else {
+      fprintf(stderr, "Cannot get: %s, error: %s\n" , keys[i].ToString().c_str(),statuses[i].ToString().c_str());
+    }
+  }
+}
 // ----------------------------------------------------------------------------
 
 ScanCommand::ScanCommand(const std::vector<std::string>& /*params*/,
@@ -3258,7 +3327,7 @@ void PutCommand::Help(std::string& ret) {
   ret.append(PutCommand::Name());
   ret.append(" <key> <value>");
   ret.append(" [--" + ARG_CREATE_IF_MISSING + "]");
-  ret.append(" [--" + ARG_TTL + "[=<ttl>]]");
+  ret.append(" [--" + ARG_TTL + "]");
   ret.append("\n");
 }
 
