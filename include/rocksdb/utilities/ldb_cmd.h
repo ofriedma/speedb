@@ -75,7 +75,7 @@ class LDBCommand {
   static const std::string ARG_DECODE_BLOB_INDEX;
   static const std::string ARG_DUMP_UNCOMPRESSED_BLOBS;
   static const std::string ARG_INTERACTIVE;
-  static const std::string ARG_KEYS_ONLY;
+
   struct ParsedParams {
     std::string cmd;
     std::vector<std::string> cmd_params;
@@ -198,7 +198,7 @@ class LDBCommand {
 
   // If true will not print values for dump, idump, scan
   bool is_no_value_;
-  
+
   /**
    * Map of options passed on the command-line.
    */

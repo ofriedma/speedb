@@ -24,7 +24,8 @@ void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
              "=<full_path_to_db_directory> when necessary\n");
   ret.append("\n");
   ret.append("commands can optionally specify\n");
-  ret.append("  --" + LDBCommand::ARG_INTERACTIVE + " to enter interactive interface");
+  ret.append("  --" + LDBCommand::ARG_INTERACTIVE +
+             " to enter interactive interface");
   ret.append("\n");
   ret.append("  --" + LDBCommand::ARG_ENV_URI + "=<uri_of_environment> or --" +
              LDBCommand::ARG_FS_URI + "=<uri_of_filesystem> if necessary");
@@ -177,10 +178,13 @@ int LDBCommandRunner::RunCommand(
 
 void LDBTool::Run(int argc, char** argv, Options options,
                   const LDBOptions& ldb_options,
-                  const std::vector<ColumnFamilyDescriptor>* column_families) {
+                  const std::vector<ColumnFamilyDescriptor>* column_families,
+                  bool exit_with_retcode) {
   int error_code = LDBCommandRunner::RunCommand(argc, argv, options,
                                                 ldb_options, column_families);
-  //exit(error_code);
+  if (exit_with_retcode) {
+    exit(error_code);
+  }
 }
 }  // namespace ROCKSDB_NAMESPACE
 

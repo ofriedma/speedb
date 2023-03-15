@@ -32,10 +32,10 @@ struct LDBOptions {
 
 class LDBTool {
  public:
-  void Run(
-      int argc, char** argv, Options db_options = Options(),
-      const LDBOptions& ldb_options = LDBOptions(),
-      const std::vector<ColumnFamilyDescriptor>* column_families = nullptr);
+  void Run(int argc, char** argv, Options db_options = Options(),
+           const LDBOptions& ldb_options = LDBOptions(),
+           const std::vector<ColumnFamilyDescriptor>* column_families = nullptr,
+           bool exit_with_retcode = true);
 };
 
 }  // namespace ROCKSDB_NAMESPACE
