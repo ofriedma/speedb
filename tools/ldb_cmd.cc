@@ -1851,7 +1851,8 @@ void InternalDumpCommand::DoCommand() {
     assert(GetExecuteState().IsFailed());
     return;
   }
-
+  HistogramImpl vsize;
+  HistogramImpl ksize;
   if (print_stats_) {
     std::string stats;
     if (db_->GetProperty(GetCfHandle(), "rocksdb.stats", &stats)) {
@@ -1911,6 +1912,10 @@ void InternalDumpCommand::DoCommand() {
       std::string key = ikey.DebugString(is_key_hex_);
       Slice value(key_version.value);
       std::string valuestr = value.ToString(is_value_hex_);
+      if (print_stats_) {
+        ksize.Add(key.size());
+        vsize.Add(valuestr.size());
+      }
       // support value with ts
       if (is_db_ttl_) {
         // keep in mind it might in some scenarios strip the value if opened a
@@ -1963,6 +1968,14 @@ void InternalDumpCommand::DoCommand() {
             rtype2.c_str(), c, s2);
   } else {
     fprintf(stdout, "Internal keys in range: %lld\n", count);
+  }
+  if (count_only_ || print_stats_) {
+    fprintf(stdout, "\nKey size distribution: \n");
+    fprintf(stdout, "\nSum of keys' sizes in range: %ld\n", ksize.sum());
+    fprintf(stdout, "%s\n", ksize.ToString().c_str());
+    fprintf(stdout, "Value size distribution: \n");
+    fprintf(stdout, "\nSum of values' sizes in range: %ld\n", vsize.sum());
+    fprintf(stdout, "%s\n", vsize.ToString().c_str());
   }
 }
 
