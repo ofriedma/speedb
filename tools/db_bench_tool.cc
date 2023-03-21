@@ -5264,8 +5264,9 @@ class Benchmark {
         if (FLAGS_ttl > 0) {
           DBWithTTL* db_with_ttl;
           // true means read only
+          std::vector<int32_t> ttls(column_families.size(), FLAGS_ttl);
           s = DBWithTTL::Open(options, db_name, column_families, &db->cfh,
-                              &db_with_ttl, {FLAGS_ttl}, true);
+                              &db_with_ttl, ttls, true);
           if (s.ok()) {
             db->db = db_with_ttl;
           }
@@ -5295,8 +5296,9 @@ class Benchmark {
       } else {
         if (FLAGS_ttl > 0) {
           DBWithTTL* db_with_ttl;
+          std::vector<int32_t> ttls(column_families.size(), FLAGS_ttl);
           s = DBWithTTL::Open(options, db_name, column_families, &db->cfh,
-                              &db_with_ttl, {FLAGS_ttl});
+                              &db_with_ttl, ttls);
           if (s.ok()) {
             db->db = db_with_ttl;
           }
@@ -5392,8 +5394,9 @@ class Benchmark {
       column_families.push_back(ColumnFamilyDescriptor(
           kDefaultColumnFamilyName, ColumnFamilyOptions(options)));
       DBWithTTL* db_with_ttl;
+      std::vector<int32_t> ttls(column_families.size(), FLAGS_ttl);
       s = DBWithTTL::Open(options, db_name, column_families, &db->cfh,
-                          &db_with_ttl, {FLAGS_ttl});
+                          &db_with_ttl, ttls);
       if (s.ok()) {
         db->db = db_with_ttl;
         db->cfh.resize(1);
