@@ -116,11 +116,11 @@ class TtlIterator : public Iterator {
 
  public:
   explicit TtlIterator(Iterator* iter, int32_t ttl, bool skip_expired_data,
-                       SystemClock* clock)
+                       int64_t creation_time)
       : iter_(iter),
         ttl_(ttl),
         skip_expired_data_(skip_expired_data),
-        clock_(clock)
+        creation_time_(creation_time)
 
   {
     assert(iter_);
@@ -183,7 +183,7 @@ class TtlIterator : public Iterator {
   Iterator* iter_;
   int32_t ttl_ = 0;
   bool skip_expired_data_ = false;
-  SystemClock* clock_;
+  int64_t creation_time_;
 };
 
 class TtlCompactionFilter : public LayeredCompactionFilterBase {

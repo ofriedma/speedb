@@ -626,18 +626,21 @@ Iterator* DBWithTTLImpl::NewIterator(const ReadOptions& opts,
       cfopts.compaction_filter_factory);
   int32_t ttl = filter->GetTtl();
   bool skip_expired = opts.skip_expired_data;
+  int64_t creation_time;
+  auto status = cfopts.env->GetSystemClock().get()->GetCurrentTime(&creation_time);
+  if (!status.ok()) {
+    return NewErrorIterator(status);
+  }
   return new TtlIterator(db_->NewIterator(opts, column_family), ttl,
-                         skip_expired, cfopts.env->GetSystemClock().get());
+                         skip_expired, creation_time);
 }
 
 void TtlIterator::HandleExpired(bool move_forward) {
   if (!skip_expired_data_) {
     return;
   }
-  int64_t current_time;
-  clock_->GetCurrentTime(&current_time);
   while (Valid()) {
-    if ((ttl_timestamp() + ttl_) < current_time) {
+    if ((ttl_timestamp() + ttl_) < creation_time_) {
       if (move_forward) {
         iter_->Next();
       } else {
