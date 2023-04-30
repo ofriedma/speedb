@@ -13,7 +13,7 @@
 #include "db/dbformat.h"
 #include "rocksdb/db.h"
 #include "util/autovector.h"
-
+#include <mutex>
 namespace ROCKSDB_NAMESPACE {
 
 class SnapshotList;
@@ -52,6 +52,7 @@ class SnapshotImpl : public Snapshot {
 };
 
 class SnapshotList {
+ mutable std::mutex lock_;
  public:
   SnapshotList() {
     list_.prev_ = &list_;
@@ -68,16 +69,20 @@ class SnapshotList {
   // No copy-construct.
   SnapshotList(const SnapshotList&) = delete;
 
-  bool empty() const {
+  bool empty(bool is_lock_acquired = false) const {
+    if (!is_lock_acquired) {
+      std::scoped_lock lock(lock_);
+    }
     assert(list_.next_ != &list_ || 0 == count_);
     return list_.next_ == &list_;
   }
-  SnapshotImpl* oldest() const { assert(!empty()); return list_.next_; }
-  SnapshotImpl* newest() const { assert(!empty()); return list_.prev_; }
+  SnapshotImpl* oldest(bool is_lock_acquired = false) const { if(!is_lock_acquired) std::scoped_lock lock(lock_);assert(!empty(true)); return list_.next_; }
+  SnapshotImpl* newest(bool is_lock_acquired = false) const { if(!is_lock_acquired) std::scoped_lock lock(lock_);assert(!empty(true)); return list_.prev_; }
 
   SnapshotImpl* New(SnapshotImpl* s, SequenceNumber seq, uint64_t unix_time,
                     bool is_write_conflict_boundary,
                     uint64_t ts = std::numeric_limits<uint64_t>::max()) {
+    std::scoped_lock lock(lock_);
     s->number_ = seq;
     s->unix_time_ = unix_time;
     s->timestamp_ = ts;
@@ -93,6 +98,7 @@ class SnapshotList {
 
   // Do not responsible to free the object.
   void Delete(const SnapshotImpl* s) {
+    std::scoped_lock lock(lock_);
     assert(s->list_ == this);
     s->prev_->next_ = s->next_;
     s->next_->prev_ = s->prev_;
@@ -115,12 +121,12 @@ class SnapshotList {
     std::vector<SequenceNumber>& ret = *snap_vector;
     // So far we have no use case that would pass a non-empty vector
     assert(ret.size() == 0);
-
+    std::scoped_lock lock(lock_);
     if (oldest_write_conflict_snapshot != nullptr) {
       *oldest_write_conflict_snapshot = kMaxSequenceNumber;
     }
 
-    if (empty()) {
+    if (empty(true)) {
       return;
     }
     const SnapshotImpl* s = &list_;
@@ -147,26 +153,30 @@ class SnapshotList {
   }
 
   // get the sequence number of the most recent snapshot
+  
   SequenceNumber GetNewest() {
-    if (empty()) {
+    std::scoped_lock lock(lock_);
+    if (empty(true)) {
       return 0;
     }
-    return newest()->number_;
+    return newest(true)->number_;
   }
 
   int64_t GetOldestSnapshotTime() const {
-    if (empty()) {
+    std::scoped_lock lock(lock_);
+    if (empty(true)) {
       return 0;
     } else {
-      return oldest()->unix_time_;
+      return oldest(true)->unix_time_;
     }
   }
 
   int64_t GetOldestSnapshotSequence() const {
-    if (empty()) {
+    std::scoped_lock lock(lock_);
+    if (empty(true)) {
       return 0;
     } else {
-      return oldest()->GetSequenceNumber();
+      return oldest(true)->GetSequenceNumber();
     }
   }
 

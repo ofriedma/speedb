@@ -3615,31 +3615,36 @@ Status DBImpl::GetTimestampedSnapshots(
 }
 
 SnapshotImpl* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary,
-                                      bool lock) {
+                                      bool lock [[maybe_unused]]) {
   int64_t unix_time = 0;
   immutable_db_options_.clock->GetCurrentTime(&unix_time)
       .PermitUncheckedError();  // Ignore error
   SnapshotImpl* s = new SnapshotImpl;
-
+/*
   if (lock) {
     mutex_.Lock();
   } else {
     mutex_.AssertHeld();
   }
+  */
   // returns null if the underlying memtable does not support snapshot.
   if (!is_snapshot_supported_) {
+    /*
     if (lock) {
       mutex_.Unlock();
     }
+    */
     delete s;
     return nullptr;
   }
   auto snapshot_seq = GetLastPublishedSequence();
   SnapshotImpl* snapshot =
       snapshots_.New(s, snapshot_seq, unix_time, is_write_conflict_boundary);
+  /*
   if (lock) {
     mutex_.Unlock();
   }
+  */
   return snapshot;
 }
 

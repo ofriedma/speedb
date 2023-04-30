@@ -1,0 +1,44 @@
+snapshot: WIP refactoring for releasing the cached snapshot and returning unique instances
+
+# Conflicts:
+#	db/db_impl/db_impl.cc
+#	db/db_impl/db_impl.h
+#	db/snapshot_impl.h
+#	db/version_set.cc
+#	db/version_set.h
+#	utilities/transactions/write_prepared_txn_db.cc
+#
+# It looks like you may be committing a cherry-pick.
+# If this is not correct, please run
+#	git update-ref -d CHERRY_PICK_HEAD
+# and try again.
+
+
+# Please enter the commit message for your changes. Lines starting
+# with '#' will be ignored, and an empty message aborts the commit.
+#
+# Author:    Isaac Garzon <isaac@speedb.io>
+# Date:      Sun Nov 13 19:58:29 2022 +0200
+#
+# On branch main
+# Your branch is ahead of 'origin/main' by 1 commit.
+#   (use "git push" to publish your local commits)
+#
+# You are currently cherry-picking commit 1f41b16e3.
+#
+# Changes to be committed:
+#	modified:   db/db_impl/db_impl.cc
+#	modified:   db/db_impl/db_impl.h
+#	modified:   db/db_impl/db_impl_compaction_flush.cc
+#	modified:   db/db_impl/db_impl_readonly.cc
+#	modified:   db/flush_job.cc
+#	modified:   db/snapshot_impl.cc
+#	modified:   db/snapshot_impl.h
+#	modified:   db/table_cache.cc
+#	modified:   db/version_set.cc
+#	modified:   db/version_set.h
+#	modified:   db/write_batch.cc
+#	modified:   utilities/blob_db/blob_db_impl.cc
+#	modified:   utilities/transactions/write_prepared_txn_db.cc
+#	modified:   utilities/transactions/write_prepared_txn_db.h
+#
