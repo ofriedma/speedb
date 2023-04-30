@@ -3778,7 +3778,6 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
   }
   const SnapshotImpl* casted_s = reinterpret_cast<const SnapshotImpl*>(s);
   {
-    InstrumentedMutexLock l(&mutex_);
     snapshots_.Delete(casted_s);
     uint64_t oldest_snapshot;
     if (snapshots_.empty()) {
@@ -3788,6 +3787,7 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
     }
     // Avoid to go through every column family by checking a global threshold
     // first.
+    InstrumentedMutexLock l(&mutex_);
     if (oldest_snapshot > bottommost_files_mark_threshold_) {
       CfdList cf_scheduled;
       for (auto* cfd : *versions_->GetColumnFamilySet()) {
