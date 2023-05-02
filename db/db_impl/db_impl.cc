@@ -3619,6 +3619,7 @@ SnapshotImpl* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary,
   int64_t unix_time = 0;
   immutable_db_options_.clock->GetCurrentTime(&unix_time)
       .PermitUncheckedError();  // Ignore error
+  if (!last_snapshot_) {
   SnapshotImpl* s = new SnapshotImpl;
 
   if (lock) {
@@ -3637,10 +3638,19 @@ SnapshotImpl* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary,
   auto snapshot_seq = GetLastPublishedSequence();
   SnapshotImpl* snapshot =
       snapshots_.New(s, snapshot_seq, unix_time, is_write_conflict_boundary);
+  snapshot->counter.fetch_add(1);
+  last_snapshot_ = snapshot;
   if (lock) {
     mutex_.Unlock();
   }
-  return snapshot;
+    return snapshot;
+  } else {
+    last_snapshot_->counter.fetch_add(1);
+    snapshots_.count_.fetch_add(1);
+    return last_snapshot_;
+  }
+  return nullptr;
+  
 }
 
 std::pair<Status, std::shared_ptr<const SnapshotImpl>>
@@ -3772,6 +3782,17 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
     return;
   }
   const SnapshotImpl* casted_s = reinterpret_cast<const SnapshotImpl*>(s);
+  SnapshotImpl* cached_s = const_cast<SnapshotImpl *>(casted_s);
+  if(cached_s->counter.load()) {
+    size_t ret = cached_s->counter.fetch_sub(1);
+    if (ret > 0) {
+      snapshots_.count_.fetch_sub(1);
+      return;
+    }
+  }
+  if (s == last_snapshot_) {
+    last_snapshot_ = nullptr;
+  }
   {
     InstrumentedMutexLock l(&mutex_);
     snapshots_.Delete(casted_s);

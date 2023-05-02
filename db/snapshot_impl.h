@@ -27,6 +27,7 @@ class SnapshotImpl : public Snapshot {
   // taken. This is currently used by WritePrepared transactions to limit the
   // scope of queries to IsInSnapshot.
   SequenceNumber min_uncommitted_ = kMinUnCommittedSeq;
+  std::atomic_uint64_t counter = {0};
 
   SequenceNumber GetSequenceNumber() const override { return number_; }
 
@@ -46,7 +47,6 @@ class SnapshotImpl : public Snapshot {
   int64_t unix_time_;
 
   uint64_t timestamp_;
-
   // Will this snapshot be used by a Transaction to do write-conflict checking?
   bool is_write_conflict_boundary_;
 };
@@ -171,11 +171,11 @@ class SnapshotList {
   }
 
   uint64_t count() const { return count_; }
+  std::atomic_uint64_t count_;
 
  private:
   // Dummy head of doubly-linked list of snapshots
   SnapshotImpl list_;
-  uint64_t count_;
 };
 
 // All operations on TimestampedSnapshotList must be protected by db mutex.

@@ -185,7 +185,7 @@ class DBImpl : public DB {
   void operator=(const DBImpl&) = delete;
 
   virtual ~DBImpl();
-
+  SnapshotImpl* last_snapshot_ = nullptr;
   // ---- Implementations of the DB interface ----
 
   using DB::Resume;
