@@ -753,7 +753,7 @@ def finalize_and_sanitize(src_params, counter):
         dest_params["sync_fault_injection"] = 0
         dest_params["manual_wal_flush_one_in"] = 0
     # PutEntity is currently not supported by SstFileWriter or in conjunction with Merge
-    if dest_params["use_put_entity_one_in"] != 0:
+    if dest_params.get("use_put_entity_one_in", 0) != 0:
         dest_params["ingest_external_file_one_in"] = 0
         dest_params["use_merge"] = 0
         dest_params["use_full_merge_v1"] = 0
