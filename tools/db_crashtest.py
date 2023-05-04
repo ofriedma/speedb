@@ -643,7 +643,7 @@ def finalize_and_sanitize(src_params, counter):
         else:
             dest_params["mock_direct_io"] = True
 
-    if dest_params["test_batches_snapshots"] == 1:
+    if dest_params.get("test_batches_snapshots") == 1:
         dest_params["enable_compaction_filter"] = 0
         if dest_params["prefix_size"] < 0:
             dest_params["prefix_size"] = 1
