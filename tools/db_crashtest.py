@@ -661,7 +661,7 @@ def finalize_and_sanitize(src_params, counter):
     if (
         dest_params.get("disable_wal") == 1
         or dest_params.get("sync_fault_injection") == 1
-        or dest_params.get("manual_wal_flush_one_in") > 0
+        or dest_params.get("manual_wal_flush_one_in", 0) > 0
     ):
         # File ingestion does not guarantee prefix-recoverability when unsynced
         # data can be lost. Ingesting a file syncs data immediately that is
