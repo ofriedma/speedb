@@ -6,7 +6,7 @@
 #pragma once
 
 #include "rocksdb/types.h"
-
+#include <atomic>
 namespace ROCKSDB_NAMESPACE {
 
 class DB;
@@ -21,6 +21,7 @@ class Snapshot {
  public:
   virtual SequenceNumber GetSequenceNumber() const = 0;
 
+  std::atomic_int64_t refcounter = 0;
   // Returns unix time i.e. the number of seconds since the Epoch, 1970-01-01
   // 00:00:00 (UTC).
   virtual int64_t GetUnixTime() const = 0;

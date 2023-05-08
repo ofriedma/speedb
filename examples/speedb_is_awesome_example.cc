@@ -50,9 +50,21 @@ int main() {
   assert(s.ok());
   assert(get_value == put_value);
   std::cout << get_value << std::endl;
-
+  const rocksdb::Snapshot* snap;
+const rocksdb::Snapshot* snap2;
+  for(auto i = 0; i < 10000;i++) {
+    snap = db->GetSnapshot();
+    //db->ReleaseSnapshot(snap);
+  };
+    s = db->Put(WriteOptions(), key + "sad", put_value);
+snap2 = db->GetSnapshot();
+  for(auto i = 0; i < 10000;i++) {
+    db->ReleaseSnapshot(snap);
+  };
+  db->ReleaseSnapshot(snap2);
   // close DB
   s = db->Close();
+  std::cout << s.ToString() << std::endl;
   assert(s.ok());
   return 0;
 }

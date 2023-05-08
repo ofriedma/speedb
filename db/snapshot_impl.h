@@ -53,6 +53,8 @@ class SnapshotImpl : public Snapshot {
 
 class SnapshotList {
  public:
+  // SnapshotImpl* atomic ptr
+  std::atomic_uint64_t last_snapshot_ = 0;
   SnapshotList() {
     list_.prev_ = &list_;
     list_.next_ = &list_;
@@ -94,6 +96,8 @@ class SnapshotList {
     s->prev_->next_ = s;
     s->next_->prev_ = s;
     count_++;
+    s->refcounter.fetch_add(1);
+    last_snapshot_.store(reinterpret_cast<uint64_t>(s));
     return s;
   }
 
@@ -102,6 +106,9 @@ class SnapshotList {
     assert(s->list_ == this);
     s->prev_->next_ = s->next_;
     s->next_->prev_ = s->prev_;
+    if(reinterpret_cast<uint64_t>(s) == last_snapshot_.load()) {
+      last_snapshot_.store(0);
+    }
     count_--;
   }
 
