@@ -3717,6 +3717,10 @@ SnapshotImpl* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary,
   int64_t unix_time = 0;
   immutable_db_options_.clock->GetCurrentTime(&unix_time)
       .PermitUncheckedError();  // Ignore error
+  auto last = snapshots_.last_snapshot_.load().get();
+  if (last && last->GetSequenceNumber() == GetLastPublishedSequence()) {
+    return last;
+  }
   SnapshotImpl* s = new SnapshotImpl;
 
   if (lock) {
@@ -3870,6 +3874,10 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
     return;
   }
   const SnapshotImpl* casted_s = reinterpret_cast<const SnapshotImpl*>(s);
+  auto last = snapshots_.last_snapshot_.load();
+  if(last.use_count()) {
+    return;
+  }
   {
     InstrumentedMutexLock l(&mutex_);
     snapshots_.Delete(casted_s);

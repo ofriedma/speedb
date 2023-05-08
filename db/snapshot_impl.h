@@ -13,7 +13,8 @@
 #include "db/dbformat.h"
 #include "rocksdb/db.h"
 #include "util/autovector.h"
-
+#include "folly/concurrency/AtomicSharedPtr.h"
+#include <mutex>
 namespace ROCKSDB_NAMESPACE {
 
 class SnapshotList;
@@ -53,6 +54,7 @@ class SnapshotImpl : public Snapshot {
 
 class SnapshotList {
  public:
+  folly::atomic_shared_ptr<SnapshotImpl> last_snapshot_;
   SnapshotList() {
     list_.prev_ = &list_;
     list_.next_ = &list_;
@@ -63,6 +65,7 @@ class SnapshotList {
     list_.timestamp_ = 0;
     list_.is_write_conflict_boundary_ = false;
     count_ = 0;
+    last_snapshot_.store(std::shared_ptr<SnapshotImpl>(&list_));
   }
 
   // No copy-construct.
@@ -93,6 +96,7 @@ class SnapshotList {
     s->prev_ = list_.prev_;
     s->prev_->next_ = s;
     s->next_->prev_ = s;
+    last_snapshot_.store(std::shared_ptr<SnapshotImpl>(s));
     count_++;
     return s;
   }
@@ -102,6 +106,7 @@ class SnapshotList {
     assert(s->list_ == this);
     s->prev_->next_ = s->next_;
     s->next_->prev_ = s->prev_;
+    last_snapshot_.store(std::shared_ptr<SnapshotImpl>(s->next_));
     count_--;
   }
 
