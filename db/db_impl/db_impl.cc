@@ -3717,10 +3717,11 @@ SnapshotImpl* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary,
   int64_t unix_time = 0;
   immutable_db_options_.clock->GetCurrentTime(&unix_time)
       .PermitUncheckedError();  // Ignore error
-  auto last_snapshot = reinterpret_cast<SnapshotImpl *>(snapshots_.last_snapshot_.load());
+  auto last_snapshot = snapshots_.last_snapshot_.load().get();
   if ((last_snapshot) && (GetLastPublishedSequence() == last_snapshot->GetSequenceNumber())) {
     uint64_t refcount = last_snapshot->refcounter.fetch_add(1, std::memory_order_seq_cst);
     if (refcount > 0) {
+      snapshots_.count_++;
       return last_snapshot;
     }
   }
@@ -3877,10 +3878,13 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
     return;
   }
   SnapshotImpl* casted_s = const_cast<SnapshotImpl*>(reinterpret_cast<const SnapshotImpl*>(s));
+
   auto refcount = casted_s->refcounter.fetch_sub(1, std::memory_order_seq_cst);
-  if (refcount > 1) {
+  if (refcount > 0) {
+    snapshots_.count_--;
     return;
   }
+
   {
     InstrumentedMutexLock l(&mutex_);
     snapshots_.Delete(casted_s);

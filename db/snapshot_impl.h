@@ -13,7 +13,8 @@
 #include "db/dbformat.h"
 #include "rocksdb/db.h"
 #include "util/autovector.h"
-
+#include "folly/concurrency/AtomicSharedPtr.h"
+#include <mutex>
 namespace ROCKSDB_NAMESPACE {
 
 class SnapshotList;
@@ -54,7 +55,7 @@ class SnapshotImpl : public Snapshot {
 class SnapshotList {
  public:
   // SnapshotImpl* atomic ptr
-  std::atomic_uint64_t last_snapshot_ = 0;
+  folly::atomic_shared_ptr<SnapshotImpl> last_snapshot_;
   SnapshotList() {
     list_.prev_ = &list_;
     list_.next_ = &list_;
@@ -96,8 +97,8 @@ class SnapshotList {
     s->prev_->next_ = s;
     s->next_->prev_ = s;
     count_++;
-    s->refcounter.fetch_add(1);
-    last_snapshot_.store(reinterpret_cast<uint64_t>(s));
+    s->refcounter.fetch_add(1, std::memory_order_seq_cst);
+    last_snapshot_.store(std::shared_ptr<SnapshotImpl>(s), std::memory_order_seq_cst);
     return s;
   }
 
@@ -106,9 +107,7 @@ class SnapshotList {
     assert(s->list_ == this);
     s->prev_->next_ = s->next_;
     s->next_->prev_ = s->prev_;
-    if(reinterpret_cast<uint64_t>(s) == last_snapshot_.load()) {
-      last_snapshot_.store(0);
-    }
+    last_snapshot_.store(nullptr);
     count_--;
   }
 
@@ -184,11 +183,11 @@ class SnapshotList {
   }
 
   uint64_t count() const { return count_; }
-
+std::atomic_uint64_t count_;
  private:
   // Dummy head of doubly-linked list of snapshots
   SnapshotImpl list_;
-  uint64_t count_;
+  
 };
 
 // All operations on TimestampedSnapshotList must be protected by db mutex.

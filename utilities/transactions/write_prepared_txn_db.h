@@ -679,7 +679,10 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
                               SequenceNumber min_uncommitted) {
     assert(snapshot);
     assert(min_uncommitted <= snapshot->number_ + 1);
-    snapshot->min_uncommitted_ = min_uncommitted;
+    if (snapshot->min_uncommitted_ != kMinUnCommittedSeq) {
+      snapshot->min_uncommitted_ = std::min(min_uncommitted,snapshot->min_uncommitted_);
+      return;
+    }
   }
 
   virtual const std::vector<SequenceNumber> GetSnapshotListFromDB(
