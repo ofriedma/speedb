@@ -11,6 +11,8 @@ To use this feature, pass allow_delays_and_stalls = true to the ctor of WBM (ren
 setup delay requests starting from (start_delay_percent * _buffer_size) / 100 (default value is 70) (start_delay_percent is another WBM ctor parameter). Changes to the WBM's memory are tracked in WriteBufferManager::ReserveMem and FreeMem.
 Once the WBM reached its capacity, writes will be stopped using the old ShouldStall() and WBMStallWrites(). (#423)
 
+* Snapshot optimization - The most important information inside a snapshot is its Sequence number, which allows the compaction to know if the key-value should be deleted or not. The sequence number is being changed when modification happens in the db. This feature allows the db to take a snapshot without acquiring db mutex when the last snapshot has the same sequence number as a new one. In transactional db with mostly read operations, it should improve performance when used with multithreaded environment and as well other scenarios of taking large amount of snapshots with mostly read operations.
+
 ### Enhancements
 * CI: add a workflow for building and publishing jar to maven central (#507)
 * LOG: Compaction job traces - report cf name and job id (#511)
