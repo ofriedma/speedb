@@ -387,6 +387,13 @@ if(WITH_TBB)
   list(APPEND THIRDPARTY_LIBS TBB::TBB)
 endif()
 
+option(WITH_FOLLY "build with Folly" OFF)
+if(WITH_FOLLY)
+  find_package(FOLLY REQUIRED)
+  add_definitions(-DFOLLY)
+  list(APPEND THIRDPARTY_LIBS folly)
+endif()
+
 # Stall notifications eat some performance from inserts
 option(DISABLE_STALL_NOTIF "Build with stall notifications" OFF)
 if(DISABLE_STALL_NOTIF)
