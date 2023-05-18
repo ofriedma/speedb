@@ -12,7 +12,13 @@
 
 #include "db/dbformat.h"
 #include "rocksdb/db.h"
+#include "rocksdb/types.h"
 #include "util/autovector.h"
+///* will enable if the performance tests will require it
+#include "folly/concurrency/AtomicSharedPtr.h"
+//*/
+#include <iostream>
+#include <mutex>
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -22,17 +28,29 @@ class SnapshotList;
 // Each SnapshotImpl corresponds to a particular sequence number.
 class SnapshotImpl : public Snapshot {
  public:
+#ifdef ROCKSDB_SNAP_OPTIMIZATION
+  std::atomic_uint64_t refcount = {1};
+  std::shared_ptr<SnapshotImpl> cached_snapshot = nullptr;
+
+  struct Deleter {
+    inline void operator()(SnapshotImpl* snap) const;
+  };
+  int64_t unix_time_;
+  uint64_t timestamp_;
+  // Will this snapshot be used by a Transaction to do write-conflict checking?
+  bool is_write_conflict_boundary_;
+#endif
   SequenceNumber number_;  // const after creation
   // It indicates the smallest uncommitted data at the time the snapshot was
   // taken. This is currently used by WritePrepared transactions to limit the
   // scope of queries to IsInSnapshot.
   SequenceNumber min_uncommitted_ = kMinUnCommittedSeq;
 
-  SequenceNumber GetSequenceNumber() const override { return number_; }
+  uint64_t GetTimestamp() const override { return timestamp_; }
 
   int64_t GetUnixTime() const override { return unix_time_; }
 
-  uint64_t GetTimestamp() const override { return timestamp_; }
+  SequenceNumber GetSequenceNumber() const override { return number_; }
 
  private:
   friend class SnapshotList;
@@ -42,17 +60,25 @@ class SnapshotImpl : public Snapshot {
   SnapshotImpl* next_;
 
   SnapshotList* list_;  // just for sanity checks
-
+#ifndef ROCKSDB_SNAP_OPTIMIZATION
   int64_t unix_time_;
 
   uint64_t timestamp_;
 
   // Will this snapshot be used by a Transaction to do write-conflict checking?
   bool is_write_conflict_boundary_;
+#endif
 };
 
 class SnapshotList {
  public:
+#ifdef ROCKSDB_SNAP_OPTIMIZATION
+  mutable std::mutex lock;
+  bool deleteitem = false;
+  ///* If the folly::atomic_shared_ptr will provide significant performance gain
+  // it will be considered as a solution
+  folly::atomic_shared_ptr<SnapshotImpl> last_snapshot_;
+#endif
   SnapshotList() {
     list_.prev_ = &list_;
     list_.next_ = &list_;
@@ -63,6 +89,9 @@ class SnapshotList {
     list_.timestamp_ = 0;
     list_.is_write_conflict_boundary_ = false;
     count_ = 0;
+#ifdef ROCKSDB_SNAP_OPTIMIZATION
+    last_snapshot_ = nullptr;
+#endif
   }
 
   // No copy-construct.
@@ -84,6 +113,9 @@ class SnapshotList {
   SnapshotImpl* New(SnapshotImpl* s, SequenceNumber seq, uint64_t unix_time,
                     bool is_write_conflict_boundary,
                     uint64_t ts = std::numeric_limits<uint64_t>::max()) {
+#ifdef ROCKSDB_SNAP_OPTIMIZATION
+    std::scoped_lock<std::mutex> l(lock);
+#endif
     s->number_ = seq;
     s->unix_time_ = unix_time;
     s->timestamp_ = ts;
@@ -118,6 +150,9 @@ class SnapshotList {
   void GetAll(std::vector<SequenceNumber>* snap_vector,
               SequenceNumber* oldest_write_conflict_snapshot = nullptr,
               const SequenceNumber& max_seq = kMaxSequenceNumber) const {
+#ifdef ROCKSDB_SNAP_OPTIMIZATION
+    std::scoped_lock<std::mutex> l(lock);
+#endif
     std::vector<SequenceNumber>& ret = *snap_vector;
     // So far we have no use case that would pass a non-empty vector
     assert(ret.size() == 0);
@@ -177,11 +212,16 @@ class SnapshotList {
   }
 
   uint64_t count() const { return count_; }
+#ifdef ROCKSDB_SNAP_OPTIMIZATION
+  std::atomic_uint64_t count_;
+#endif
 
  private:
   // Dummy head of doubly-linked list of snapshots
   SnapshotImpl list_;
+#ifndef ROCKSDB_SNAP_OPTIMIZATION
   uint64_t count_;
+#endif
 };
 
 // All operations on TimestampedSnapshotList must be protected by db mutex.
@@ -235,5 +275,15 @@ class TimestampedSnapshotList {
  private:
   std::map<uint64_t, std::shared_ptr<const SnapshotImpl>> snapshots_;
 };
-
+#ifdef ROCKSDB_SNAP_OPTIMIZATION
+inline void SnapshotImpl::Deleter::operator()(SnapshotImpl* snap) const {
+  if (snap->cached_snapshot == nullptr) {
+    std::scoped_lock<std::mutex> l(snap->list_->lock);
+    snap->prev_->next_ = snap->next_;
+    snap->next_->prev_ = snap->prev_;
+    snap->list_->deleteitem = true;
+  }
+  delete snap;
+}
+#endif
 }  // namespace ROCKSDB_NAMESPACE
