@@ -3717,7 +3717,16 @@ SnapshotImpl* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary,
   int64_t unix_time = 0;
   immutable_db_options_.clock->GetCurrentTime(&unix_time)
       .PermitUncheckedError();  // Ignore error
+  snapshots_.count_.fetch_add(1);
+  std::shared_ptr<SnapshotImpl> snap = snapshots_.last_snapshot_;
   SnapshotImpl* s = new SnapshotImpl;
+  if (snap && snap->GetSequenceNumber() == GetLastPublishedSequence() && snap->is_write_conflict_boundary_ == is_write_conflict_boundary) {
+    s->cached_snapshot = snap;
+    s->number_ = snap->number_;
+    s->unix_time_ = unix_time;
+    s->is_write_conflict_boundary_ = is_write_conflict_boundary;
+    return s;
+  }
 
   if (lock) {
     mutex_.Lock();
@@ -3735,10 +3744,19 @@ SnapshotImpl* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary,
   auto snapshot_seq = GetLastPublishedSequence();
   SnapshotImpl* snapshot =
       snapshots_.New(s, snapshot_seq, unix_time, is_write_conflict_boundary);
+  SnapshotImpl* snapshot2 = new SnapshotImpl;
+  snapshot2->db_mutex_ = &mutex_;
+  snapshot2->unix_time_ = unix_time;
+  snapshot2->is_write_conflict_boundary_ = is_write_conflict_boundary;
+  snapshot2->number_ = snapshot_seq;
+  snapshot->db_mutex_ = &mutex_;
   if (lock) {
     mutex_.Unlock();
   }
-  return snapshot;
+  snapshots_.last_snapshot_ = std::shared_ptr<SnapshotImpl>(snapshot, SnapshotImpl::Deleter{});
+  snapshot2->cached_snapshot = snapshots_.last_snapshot_.load();
+
+  return snapshot2;
 }
 
 std::pair<Status, std::shared_ptr<const SnapshotImpl>>
@@ -3870,9 +3888,17 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
     return;
   }
   const SnapshotImpl* casted_s = reinterpret_cast<const SnapshotImpl*>(s);
+  SnapshotImpl* snapshot = const_cast<SnapshotImpl*>(casted_s);
+  snapshots_.count_.fetch_sub(1);
+  if (snapshot->cached_snapshot != nullptr) {
+    delete snapshot;
+  } if (!snapshots_.deleteitem) {
+    return;
+  }
   {
     InstrumentedMutexLock l(&mutex_);
-    snapshots_.Delete(casted_s);
+    snapshots_.deleteitem = false;
+    //snapshots_.Delete(casted_s);
     uint64_t oldest_snapshot;
     if (snapshots_.empty()) {
       oldest_snapshot = GetLastPublishedSequence();
@@ -3913,7 +3939,7 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
       bottommost_files_mark_threshold_ = new_bottommost_files_mark_threshold;
     }
   }
-  delete casted_s;
+  //delete casted_s;
 }
 
 Status DBImpl::GetPropertiesOfAllTables(ColumnFamilyHandle* column_family,

@@ -6,7 +6,7 @@
 #pragma once
 
 #include "rocksdb/types.h"
-
+#include <mutex>
 namespace ROCKSDB_NAMESPACE {
 
 class DB;
@@ -19,6 +19,7 @@ class DB;
 // To Destroy a Snapshot, call DB::ReleaseSnapshot(snapshot).
 class Snapshot {
  public:
+  std::shared_ptr<Snapshot> cached_snapshot = nullptr;
   virtual SequenceNumber GetSequenceNumber() const = 0;
 
   // Returns unix time i.e. the number of seconds since the Epoch, 1970-01-01
