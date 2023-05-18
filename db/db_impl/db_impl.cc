@@ -3714,10 +3714,16 @@ Status DBImpl::GetTimestampedSnapshots(
 
 SnapshotImpl* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary,
                                       bool lock) {
+  if (!is_snapshot_supported_) {
+    return nullptr;
+  }
   int64_t unix_time = 0;
-  immutable_db_options_.clock->GetCurrentTime(&unix_time)
-      .PermitUncheckedError();  // Ignore error
   SnapshotImpl* s = new SnapshotImpl;
+#ifdef SPEEDB_SNAP_OPTIMIZATION
+  if (RefSnapshot(unix_time, is_write_conflict_boundary, s)) {
+    return s;
+  }
+#endif
 
   if (lock) {
     mutex_.Lock();
@@ -3732,6 +3738,8 @@ SnapshotImpl* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary,
     delete s;
     return nullptr;
   }
+  immutable_db_options_.clock->GetCurrentTime(&unix_time)
+      .PermitUncheckedError();  // Ignore error
   auto snapshot_seq = GetLastPublishedSequence();
   SnapshotImpl* snapshot =
       snapshots_.New(s, snapshot_seq, unix_time, is_write_conflict_boundary);
@@ -3862,6 +3870,47 @@ bool CfdListContains(const CfdList& list, ColumnFamilyData* cfd) {
 }
 }  //  namespace
 
+#ifdef SPEEDB_SNAP_OPTIMIZATION
+bool DBImpl::UnRefSnapshot(const SnapshotImpl* snapshot,
+                           bool& is_cached_snapshot) {
+  SnapshotImpl* snap = const_cast<SnapshotImpl*>(snapshot);
+  if (snap->cached_snapshot) {
+    snapshots_.logical_count_.fetch_sub(1);
+    is_cached_snapshot = true;
+    size_t cnt = snap->cached_snapshot->refcount.fetch_sub(1);
+    if (cnt < 2) {
+      snapshots_.last_snapshot_.compare_exchange_weak(snap->cached_snapshot,
+                                                      nullptr);
+    }
+    delete snap;
+  }
+  if (!snapshots_.deleteitem && is_cached_snapshot) {
+    return true;
+  }
+  return false;
+}
+
+bool DBImpl::RefSnapshot(int64_t unix_time, bool is_write_conflict_boundary,
+                         SnapshotImpl* snapshot) {
+  std::shared_ptr<SnapshotImpl> shared_snap = snapshots_.last_snapshot_;
+  if (shared_snap &&
+      shared_snap->GetSequenceNumber() == GetLastPublishedSequence() &&
+      shared_snap->is_write_conflict_boundary_ == is_write_conflict_boundary) {
+    immutable_db_options_.clock->GetCurrentTime(&unix_time)
+        .PermitUncheckedError();  // Ignore error
+    snapshot->cached_snapshot = shared_snap;
+    snapshots_.logical_count_.fetch_add(1);
+    shared_snap->refcount.fetch_add(1);
+    snapshot->number_ = shared_snap->GetSequenceNumber();
+    snapshot->unix_time_ = unix_time;
+    snapshot->is_write_conflict_boundary_ = is_write_conflict_boundary;
+    return true;
+  }
+  return false;
+}
+
+#endif
+
 void DBImpl::ReleaseSnapshot(const Snapshot* s) {
   if (s == nullptr) {
     // DBImpl::GetSnapshot() can return nullptr when snapshot
@@ -3870,9 +3919,24 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
     return;
   }
   const SnapshotImpl* casted_s = reinterpret_cast<const SnapshotImpl*>(s);
+#ifdef SPEEDB_SNAP_OPTIMIZATION
+  bool is_cached_snapshot = false;
+  if (UnRefSnapshot(casted_s, is_cached_snapshot)) {
+    return;
+  }
+#endif
   {
     InstrumentedMutexLock l(&mutex_);
+#ifdef SPEEDB_SNAP_OPTIMIZATION
+    std::scoped_lock<std::mutex> snaplock(snapshots_.lock);
+    snapshots_.deleteitem = false;
+    if (!is_cached_snapshot) {
+      snapshots_.Delete(casted_s);
+      delete casted_s;
+    }
+#else
     snapshots_.Delete(casted_s);
+#endif
     uint64_t oldest_snapshot;
     if (snapshots_.empty()) {
       oldest_snapshot = GetLastPublishedSequence();
@@ -3913,7 +3977,9 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
       bottommost_files_mark_threshold_ = new_bottommost_files_mark_threshold;
     }
   }
+#ifndef SPEEDB_SNAP_OPTIMIZATION
   delete casted_s;
+#endif
 }
 
 Status DBImpl::GetPropertiesOfAllTables(ColumnFamilyHandle* column_family,
