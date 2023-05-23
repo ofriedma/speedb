@@ -3717,16 +3717,17 @@ SnapshotImpl* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary,
   int64_t unix_time = 0;
   immutable_db_options_.clock->GetCurrentTime(&unix_time)
       .PermitUncheckedError();  // Ignore error
-  snapshots_.count_.fetch_add(1);
   std::shared_ptr<SnapshotImpl> snap = snapshots_.last_snapshot_;
   SnapshotImpl* s = new SnapshotImpl;
   if (snap && snap->GetSequenceNumber() == GetLastPublishedSequence() && snap->is_write_conflict_boundary_ == is_write_conflict_boundary) {
     s->cached_snapshot = snap;
+    snapshots_.count_.fetch_add(1);
     s->number_ = snap->number_;
     s->unix_time_ = unix_time;
     s->is_write_conflict_boundary_ = is_write_conflict_boundary;
     return s;
   }
+  snap = nullptr;
 
   if (lock) {
     mutex_.Lock();
@@ -3745,6 +3746,11 @@ SnapshotImpl* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary,
   SnapshotImpl* snapshot =
       snapshots_.New(s, snapshot_seq, unix_time, is_write_conflict_boundary);
   SnapshotImpl* snapshot2 = new SnapshotImpl;
+  snapshot->refcount = 1;
+  
+  auto new_last_snapshot = std::shared_ptr<SnapshotImpl>(snapshot, SnapshotImpl::Deleter{});
+  snapshot2->cached_snapshot = new_last_snapshot;
+  snapshots_.last_snapshot_ = new_last_snapshot;
   snapshot2->db_mutex_ = &mutex_;
   snapshot2->unix_time_ = unix_time;
   snapshot2->is_write_conflict_boundary_ = is_write_conflict_boundary;
@@ -3753,8 +3759,7 @@ SnapshotImpl* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary,
   if (lock) {
     mutex_.Unlock();
   }
-  snapshots_.last_snapshot_ = std::shared_ptr<SnapshotImpl>(snapshot, SnapshotImpl::Deleter{});
-  snapshot2->cached_snapshot = snapshots_.last_snapshot_.load();
+  
 
   return snapshot2;
 }
@@ -3887,23 +3892,37 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
     // inplace_update_support enabled.
     return;
   }
+  snapshots_.count_.fetch_sub(1);
   const SnapshotImpl* casted_s = reinterpret_cast<const SnapshotImpl*>(s);
   SnapshotImpl* snapshot = const_cast<SnapshotImpl*>(casted_s);
-  snapshots_.count_.fetch_sub(1);
+  size_t count = 0;
+  auto cached = snapshots_.last_snapshot_.load();
+  size_t number = 0;
   if (snapshot->cached_snapshot != nullptr) {
+    number = snapshot->cached_snapshot->GetSequenceNumber();
+    count = snapshot->cached_snapshot->refcount.fetch_sub(1);
     delete snapshot;
-  } if (!snapshots_.deleteitem) {
+  }
+  
+  if (cached != nullptr && count < 2 && number == cached->GetSequenceNumber()) {
+    snapshots_.last_snapshot_ = nullptr;
+  }
+  cached = nullptr;
+  if (!snapshots_.deleteitem) {
     return;
   }
   {
     InstrumentedMutexLock l(&mutex_);
+    std::scoped_lock<std::mutex> snaplock(snapshots_.lock);
     snapshots_.deleteitem = false;
     //snapshots_.Delete(casted_s);
     uint64_t oldest_snapshot;
     if (snapshots_.empty()) {
       oldest_snapshot = GetLastPublishedSequence();
     } else {
+
       oldest_snapshot = snapshots_.oldest()->number_;
+
     }
     // Avoid to go through every column family by checking a global threshold
     // first.
