@@ -82,7 +82,7 @@ int main() {
 
 void getrelease(DB* db) {
   const rocksdb::Snapshot* snap;
-  for(int i = 0;i < 1000;i++) {
+  for(int i = 0;i < 100000;i++) {
     snap = db->GetSnapshot();
     std::this_thread::sleep_for(1us);
     db->ReleaseSnapshot(snap);
@@ -91,7 +91,7 @@ void getrelease(DB* db) {
 
 void writer(DB* db) {
   auto wopts = WriteOptions();
-  for(int i = 0;i < 1000;i++) {
+  for(int i = 0;i < 100000;i++) {
     std::this_thread::sleep_for(1us);
     db->Put(wopts, "abc" + std::to_string(i), "abcd");
   }

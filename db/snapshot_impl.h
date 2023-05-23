@@ -67,9 +67,9 @@ class SnapshotImpl : public Snapshot {
 
 class SnapshotList {
  public:
-  std::mutex lock;
+  mutable std::mutex lock;
   bool deleteitem = false;
-  folly::atomic_shared_ptr<SnapshotImpl> last_snapshot_;
+  mutable folly::atomic_shared_ptr<SnapshotImpl> last_snapshot_;
   SnapshotList() {
     list_.prev_ = &list_;
     list_.next_ = &list_;
@@ -102,6 +102,7 @@ class SnapshotList {
   SnapshotImpl* New(SnapshotImpl* s, SequenceNumber seq, uint64_t unix_time,
                     bool is_write_conflict_boundary,
                     uint64_t ts = std::numeric_limits<uint64_t>::max()) {
+    std::scoped_lock<std::mutex> l(lock);
     s->number_ = seq;
     s->unix_time_ = unix_time;
     s->timestamp_ = ts;
@@ -111,6 +112,7 @@ class SnapshotList {
     s->prev_ = list_.prev_;
     s->prev_->next_ = s;
     s->next_->prev_ = s;
+    count_++;
     //last_snapshot_ = std::shared_ptr<SnapshotImpl>(s);
     return s;
   }
@@ -136,6 +138,8 @@ class SnapshotList {
   void GetAll(std::vector<SequenceNumber>* snap_vector,
               SequenceNumber* oldest_write_conflict_snapshot = nullptr,
               const SequenceNumber& max_seq = kMaxSequenceNumber) const {
+    //last_snapshot_ = nullptr;
+    std::scoped_lock<std::mutex> l(lock);
     std::vector<SequenceNumber>& ret = *snap_vector;
     // So far we have no use case that would pass a non-empty vector
     assert(ret.size() == 0);
@@ -148,11 +152,7 @@ class SnapshotList {
       return;
     }
     const SnapshotImpl* s = &list_;
-    size_t i = 0;
     while (s->next_ != &list_) {
-      i++;
-      std::cout << "i: " << i << std::endl;
-      std::cout << "count: " << count() << std::endl;
       if (s->next_->number_ > max_seq) {
         break;
       }
@@ -259,11 +259,13 @@ class TimestampedSnapshotList {
 };
         inline void SnapshotImpl::Deleter::operator()(SnapshotImpl* snap) const {
             if (snap->cached_snapshot == nullptr) {
-              snap->db_mutex_->Lock();
+              //snap->db_mutex_->Lock();
+              std::scoped_lock<std::mutex> l(snap->list_->lock);
               snap->prev_->next_ = snap->next_;
               snap->next_->prev_ = snap->prev_;
               snap->list_->deleteitem = true;
-              snap->db_mutex_->Unlock();
+              //snap->db_mutex_->Unlock();
+
             }
             delete snap;
         }
