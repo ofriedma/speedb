@@ -10,11 +10,16 @@
 #pragma once
 #include <vector>
 
+#include "rocksdb/types.h"
 #include "db/dbformat.h"
 #include "rocksdb/db.h"
 #include "util/autovector.h"
 #include "monitoring/instrumented_mutex.h"
+/* will enable if the performance tests will require it
+#ifdef USE_FOLLY
 #include "folly/concurrency/AtomicSharedPtr.h"
+#endif
+*/
 #include <mutex>
 #include <iostream>
 
@@ -39,8 +44,6 @@ class SnapshotImpl : public Snapshot {
   // taken. This is currently used by WritePrepared transactions to limit the
   // scope of queries to IsInSnapshot.
   SequenceNumber min_uncommitted_ = kMinUnCommittedSeq;
-
-  CacheAlignedInstrumentedMutex* db_mutex_ = nullptr;
 
   bool lockit = true;
 
@@ -69,7 +72,14 @@ class SnapshotList {
  public:
   mutable std::mutex lock;
   bool deleteitem = false;
-  mutable folly::atomic_shared_ptr<SnapshotImpl> last_snapshot_;
+  /* If the folly::atomic_shared_ptr will provide significant performance gain
+  it will be considered as a solution
+  #ifdef USE_FOLLY
+  folly::atomic_shared_ptr<SnapshotImpl> last_snapshot_;
+  #else
+  */
+  mutable rocksdb::atomic_shared_ptr<SnapshotImpl> last_snapshot_;
+  //#endif
   SnapshotList() {
     list_.prev_ = &list_;
     list_.next_ = &list_;
@@ -113,7 +123,6 @@ class SnapshotList {
     s->prev_->next_ = s;
     s->next_->prev_ = s;
     count_++;
-    //last_snapshot_ = std::shared_ptr<SnapshotImpl>(s);
     return s;
   }
 
@@ -138,7 +147,6 @@ class SnapshotList {
   void GetAll(std::vector<SequenceNumber>* snap_vector,
               SequenceNumber* oldest_write_conflict_snapshot = nullptr,
               const SequenceNumber& max_seq = kMaxSequenceNumber) const {
-    //last_snapshot_ = nullptr;
     std::scoped_lock<std::mutex> l(lock);
     std::vector<SequenceNumber>& ret = *snap_vector;
     // So far we have no use case that would pass a non-empty vector
@@ -257,29 +265,15 @@ class TimestampedSnapshotList {
  private:
   std::map<uint64_t, std::shared_ptr<const SnapshotImpl>> snapshots_;
 };
-        inline void SnapshotImpl::Deleter::operator()(SnapshotImpl* snap) const {
-            if (snap->cached_snapshot == nullptr) {
-              //snap->db_mutex_->Lock();
-              std::scoped_lock<std::mutex> l(snap->list_->lock);
-              snap->prev_->next_ = snap->next_;
-              snap->next_->prev_ = snap->prev_;
-              snap->list_->deleteitem = true;
-              //snap->db_mutex_->Unlock();
-
-            }
-            delete snap;
-        }
-/*
- inline SnapshotImpl::~SnapshotImpl() {
-    if (cached_snapshot == nullptr) {
-      db_mutex_->Lock();
-      this->prev_->next_ = this->next_;
-      this->next_->prev_ = this->prev_;
-      this->list_->deleteitem = true;
-      db_mutex_->Unlock();
+inline void SnapshotImpl::Deleter::operator()(SnapshotImpl* snap) const {
+    if (snap->cached_snapshot == nullptr) {
+      std::scoped_lock<std::mutex> l(snap->list_->lock);
+      snap->prev_->next_ = snap->next_;
+      snap->next_->prev_ = snap->prev_;
+      snap->list_->deleteitem = true;
     }
-  };
-*/
+    delete snap;
+}
  inline uint64_t SnapshotImpl::GetTimestamp() const { return timestamp_; }
  inline int64_t SnapshotImpl::GetUnixTime() const { return unix_time_; }
   inline SequenceNumber SnapshotImpl::GetSequenceNumber() const { return number_; }

@@ -3745,21 +3745,16 @@ SnapshotImpl* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary,
   auto snapshot_seq = GetLastPublishedSequence();
   SnapshotImpl* snapshot =
       snapshots_.New(s, snapshot_seq, unix_time, is_write_conflict_boundary);
-  SnapshotImpl* snapshot2 = new SnapshotImpl;
-  snapshot->refcount = 1;
-  
+  SnapshotImpl* snapshot2 = new SnapshotImpl;  
   auto new_last_snapshot = std::shared_ptr<SnapshotImpl>(snapshot, SnapshotImpl::Deleter{});
   snapshot2->cached_snapshot = new_last_snapshot;
   snapshots_.last_snapshot_ = new_last_snapshot;
-  snapshot2->db_mutex_ = &mutex_;
   snapshot2->unix_time_ = unix_time;
   snapshot2->is_write_conflict_boundary_ = is_write_conflict_boundary;
   snapshot2->number_ = snapshot_seq;
-  snapshot->db_mutex_ = &mutex_;
   if (lock) {
     mutex_.Unlock();
   }
-  
 
   return snapshot2;
 }
@@ -3895,17 +3890,14 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
   snapshots_.count_.fetch_sub(1);
   const SnapshotImpl* casted_s = reinterpret_cast<const SnapshotImpl*>(s);
   SnapshotImpl* snapshot = const_cast<SnapshotImpl*>(casted_s);
-  size_t count = 0;
+  #ifdef USE_FOLLY
   auto cached = snapshots_.last_snapshot_.load();
-  size_t number = 0;
-  if (snapshot->cached_snapshot != nullptr) {
-    number = snapshot->cached_snapshot->GetSequenceNumber();
-    count = snapshot->cached_snapshot->refcount.fetch_sub(1);
-    delete snapshot;
-  }
+  #else
+  auto cached = snapshots_.last_snapshot_.LoadSnap();
+  #endif
   
-  if (cached != nullptr && count < 2 && number == cached->GetSequenceNumber()) {
-    snapshots_.last_snapshot_ = nullptr;
+  if (snapshot->cached_snapshot != nullptr) {
+    delete snapshot;
   }
   cached = nullptr;
   if (!snapshots_.deleteitem) {
@@ -3915,7 +3907,6 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
     InstrumentedMutexLock l(&mutex_);
     std::scoped_lock<std::mutex> snaplock(snapshots_.lock);
     snapshots_.deleteitem = false;
-    //snapshots_.Delete(casted_s);
     uint64_t oldest_snapshot;
     if (snapshots_.empty()) {
       oldest_snapshot = GetLastPublishedSequence();

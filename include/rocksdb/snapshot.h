@@ -19,7 +19,6 @@ class DB;
 // To Destroy a Snapshot, call DB::ReleaseSnapshot(snapshot).
 class Snapshot {
  public:
-  std::atomic_uint64_t refcount = 0;
   std::shared_ptr<Snapshot> cached_snapshot = nullptr;
   virtual SequenceNumber GetSequenceNumber() const = 0;
 
