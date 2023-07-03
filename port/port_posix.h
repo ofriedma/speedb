@@ -12,7 +12,7 @@
 #pragma once
 
 #include <thread>
-
+#include <iostream>
 #include "rocksdb/port_defs.h"
 #include "rocksdb/rocksdb_namespace.h"
 
@@ -176,7 +176,44 @@ class CondVar {
   Mutex* mu_;
 };
 
-using Thread = std::thread;
+
+class ThreadRocksDB
+{
+  public:
+    template <typename Function, typename... Args>
+    ThreadRocksDB(Function&& func, Args&&... args)
+    {
+      thread_ = std::thread(std::forward<Function>(func), std::forward<Args>(args)...);
+    }
+
+    ThreadRocksDB() {}
+    bool joinable() {
+      return thread_.joinable();
+    }
+
+    void join() {
+      thread_.join();
+    }
+    void detach() {
+      thread_.detach();
+    }
+    std::thread::id get_id() {
+      return thread_.get_id();
+    }
+    std::thread& operator=(std::thread &&__t) {
+      thread_ = std::move(__t);
+      return thread_;
+    }
+    std::thread::native_handle_type native_handle() {
+      return thread_.native_handle();
+    }
+    
+  
+  private:
+    std::thread thread_;
+};
+
+using Thread = ThreadRocksDB;
 
 static inline void AsmVolatilePause() {
 #if defined(__i386__) || defined(__x86_64__)

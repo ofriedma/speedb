@@ -45,6 +45,7 @@
 #include <thread>
 #include <unordered_set>
 
+#include "port/port.h"
 #include "rocksdb/customizable.h"
 #include "rocksdb/slice.h"
 
@@ -319,7 +320,7 @@ class MemTableRepFactory : public Customizable {
 
   void Init() {
     switch_memtable_thread_ =
-        std::thread(&MemTableRepFactory::PrepareSwitchMemTable, this);
+        port::Thread(&MemTableRepFactory::PrepareSwitchMemTable, this);
     // need to verify the thread was executed
     {
       std::unique_lock<std::mutex> lck(switch_memtable_thread_mutex_);
@@ -420,7 +421,7 @@ class MemTableRepFactory : public Customizable {
   bool enable_switch_memtable_ = false;
 
  private:
-  std::thread switch_memtable_thread_;
+  port::Thread switch_memtable_thread_;
   std::mutex switch_memtable_thread_mutex_;
   std::condition_variable switch_memtable_thread_cv_;
   std::atomic<bool> terminate_switch_memtable_ = false;
