@@ -3722,7 +3722,7 @@ SnapshotImpl* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary,
   if (snap && snap->GetSequenceNumber() == GetLastPublishedSequence() &&
       snap->is_write_conflict_boundary_ == is_write_conflict_boundary) {
     s->cached_snapshot = snap;
-    snapshots_.count_.fetch_add(1);
+    snapshots_.logical_count_.fetch_add(1);
     snap->refcount.fetch_add(1);
     s->number_ = snap->GetSequenceNumber();
     s->unix_time_ = unix_time;
@@ -3744,6 +3744,8 @@ SnapshotImpl* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary,
     delete s;
     return nullptr;
   }
+  immutable_db_options_.clock->GetCurrentTime(&unix_time)
+      .PermitUncheckedError();  // Ignore error
   auto snapshot_seq = GetLastPublishedSequence();
   SnapshotImpl* snapshot =
       snapshots_.New(s, snapshot_seq, unix_time, is_write_conflict_boundary);
@@ -3920,10 +3922,12 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
     // inplace_update_support enabled.
     return;
   }
-  snapshots_.count_.fetch_sub(1);
   const SnapshotImpl* casted_s = reinterpret_cast<const SnapshotImpl*>(s);
   SnapshotImpl* snapshot = const_cast<SnapshotImpl*>(casted_s);
+  bool is_cached_snapshot = false;
   if (snapshot->cached_snapshot) {
+    snapshots_.logical_count_.fetch_sub(1);
+    is_cached_snapshot = true;
     size_t cnt = snapshot->cached_snapshot->refcount.fetch_sub(1);
     if (cnt < 2) {
       snapshots_.last_snapshot_.compare_exchange_weak(snapshot->cached_snapshot,
@@ -3931,13 +3935,17 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
     }
     delete snapshot;
   }
-  if (!snapshots_.deleteitem) {
+  if (!snapshots_.deleteitem && is_cached_snapshot) {
     return;
   }
   {
     InstrumentedMutexLock l(&mutex_);
     std::scoped_lock<std::mutex> snaplock(snapshots_.lock);
     snapshots_.deleteitem = false;
+    if (!is_cached_snapshot) {
+      snapshots_.Delete(snapshot);
+      delete snapshot;
+    }
     uint64_t oldest_snapshot;
     if (snapshots_.empty()) {
       oldest_snapshot = GetLastPublishedSequence();

@@ -115,6 +115,7 @@ class SnapshotList {
                     uint64_t ts = std::numeric_limits<uint64_t>::max()) {
 #ifdef ROCKSDB_SNAP_OPTIMIZATION
     std::scoped_lock<std::mutex> l(lock);
+    logical_count_.fetch_add(1);
 #endif
     s->number_ = seq;
     s->unix_time_ = unix_time;
@@ -214,6 +215,8 @@ class SnapshotList {
   uint64_t count() const { return count_; }
 #ifdef ROCKSDB_SNAP_OPTIMIZATION
   std::atomic_uint64_t count_;
+  uint64_t logical_count() const { return logical_count_; }
+  std::atomic_uint64_t logical_count_;
 #endif
 
  private:
@@ -282,6 +285,7 @@ inline void SnapshotImpl::Deleter::operator()(SnapshotImpl* snap) const {
     snap->prev_->next_ = snap->next_;
     snap->next_->prev_ = snap->prev_;
     snap->list_->deleteitem = true;
+    snap->list_->count_.fetch_sub(1);
   }
   delete snap;
 }
