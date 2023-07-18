@@ -63,8 +63,8 @@ class SnapshotImpl : public Snapshot {
 
 class SnapshotList {
  public:
-#ifdef SPEEDB_SNAP_OPTIMIZATION
   mutable std::mutex lock;
+#ifdef SPEEDB_SNAP_OPTIMIZATION
   bool deleteitem = false;
   folly::atomic_shared_ptr<SnapshotImpl> last_snapshot_;
 #endif
@@ -81,6 +81,27 @@ class SnapshotList {
 #ifdef SPEEDB_SNAP_OPTIMIZATION
     last_snapshot_ = nullptr;
 #endif
+  }
+  SnapshotImpl* RefSnapshot(bool is_write_conflict_boundary,
+                            SequenceNumber last_pub, SystemClock* clock) {
+#ifdef SPEEDB_SNAP_OPTIMIZATION
+    std::shared_ptr<SnapshotImpl> shared_snap = last_snapshot_;
+    if (shared_snap && shared_snap->GetSequenceNumber() == last_pub &&
+        shared_snap->is_write_conflict_boundary_ ==
+            is_write_conflict_boundary) {
+      SnapshotImpl* snapshot = new SnapshotImpl;
+      int64_t unix_time;
+      clock->GetCurrentTime(&unix_time).PermitUncheckedError();  // Ignore error
+      snapshot->cached_snapshot = shared_snap;
+      logical_count_.fetch_add(1);
+      shared_snap->refcount.fetch_add(1);
+      snapshot->number_ = shared_snap->GetSequenceNumber();
+      snapshot->unix_time_ = unix_time;
+      snapshot->is_write_conflict_boundary_ = is_write_conflict_boundary;
+      return snapshot;
+    }
+#endif
+    return nullptr;
   }
 
   // No copy-construct.
@@ -100,28 +121,54 @@ class SnapshotList {
   }
 
 #ifdef SPEEDB_SNAP_OPTIMIZATION
-  SnapshotImpl* NewSnapRef(SequenceNumber seq, uint64_t unix_time,
+  SnapshotImpl* NewSnapRef(SnapshotImpl* s, SequenceNumber seq, uint64_t unix_time,
                            bool is_write_conflict_boundary,
                            uint64_t ts = std::numeric_limits<uint64_t>::max()) {
     // user snapshot is a reference to the snapshot inside the SnapshotList
     // Unfortunatly right now the snapshot api cannot return shared_ptr to the
     // user so a deep copy should be created
+    // s is the original snapshot that is being stored in the SnapshotList
     SnapshotImpl* user_snapshot = new SnapshotImpl;
     user_snapshot->unix_time_ = unix_time;
     user_snapshot->is_write_conflict_boundary_ = is_write_conflict_boundary;
     user_snapshot->number_ = seq;
     user_snapshot->timestamp_ = ts;
+    auto new_last_snapshot =
+        std::shared_ptr<SnapshotImpl>(s, SnapshotImpl::Deleter{});
+    // may call Deleter
+    last_snapshot_ = new_last_snapshot;
+    user_snapshot->cached_snapshot = last_snapshot_;
     return user_snapshot;
   }
 #endif
+bool UnRefSnapshot(const SnapshotImpl* snapshot) {
+  #ifdef SPEEDB_SNAP_OPTIMIZATION
+  SnapshotImpl* snap = const_cast<SnapshotImpl*>(snapshot);
+    logical_count_.fetch_sub(1);
+    size_t cnt = snap->cached_snapshot->refcount.fetch_sub(1);
+    if (cnt < 2) {
+      last_snapshot_.compare_exchange_weak(snap->cached_snapshot,
+                                                      nullptr);
+    }
+  delete snap;
+  if (!deleteitem) {
+    // item has not been deleted from SnapshotList
+    return true;
+  }
+  #endif
+  return false;
+}
 
-  SnapshotImpl* New(SnapshotImpl* s, SequenceNumber seq, uint64_t unix_time,
+  SnapshotImpl* New(SequenceNumber seq, SystemClock* clock,
                     bool is_write_conflict_boundary,
-                    uint64_t ts = std::numeric_limits<uint64_t>::max(), const DB* db_impl = nullptr) {
+                    uint64_t ts = std::numeric_limits<uint64_t>::max()) {
+    SnapshotImpl* s = new SnapshotImpl;
 #ifdef SPEEDB_SNAP_OPTIMIZATION
     std::unique_lock<std::mutex> l(lock);
     logical_count_.fetch_add(1);
 #endif
+    int64_t unix_time;
+    clock->GetCurrentTime(&unix_time).PermitUncheckedError();  // Ignore error
     s->number_ = seq;
     s->unix_time_ = unix_time;
     s->timestamp_ = ts;
@@ -133,28 +180,24 @@ class SnapshotList {
     s->next_->prev_ = s;
     count_++;
 #ifdef SPEEDB_SNAP_OPTIMIZATION
-    SnapshotImpl* snap =
-        NewSnapRef(seq, unix_time, is_write_conflict_boundary, ts);
-    auto new_last_snapshot =
-        std::shared_ptr<SnapshotImpl>(s, SnapshotImpl::Deleter{});
-    // may call Deleter
     l.unlock();
-    last_snapshot_ = new_last_snapshot;
-    snap->cached_snapshot = last_snapshot_;
-    return snap;
+    return NewSnapRef(s, seq, unix_time, is_write_conflict_boundary, ts);
 #endif
     return s;
   }
 
   // Do not responsible to free the object.
   void Delete(const SnapshotImpl* s) {
-#ifdef WITH_SNAP_OPTIMIZATION
+#ifdef SPEEDB_SNAP_OPTIMIZATION
     std::unique_lock<std::mutex> l(lock);
-#endif
+    deleteitem = false;
+#else
     assert(s->list_ == this);
+    count_--;
     s->prev_->next_ = s->next_;
     s->next_->prev_ = s->prev_;
-    count_--;
+    delete s;
+#endif
   }
 
   // retrieve all snapshot numbers up until max_seq. They are sorted in
@@ -233,10 +276,11 @@ class SnapshotList {
 
 // How many snapshots in the SnapshotList
   uint64_t count() const { return count_; }
-  uint64_t count_;
   // How many snapshots in the system included those that created refcount
   uint64_t logical_count() const { return logical_count_; }
-  std::atomic_uint64_t logical_count_;
+
+  std::atomic_uint64_t logical_count_ = {0};
+  uint64_t count_;
 
  private:
   // Dummy head of doubly-linked list of snapshots
@@ -299,10 +343,10 @@ class TimestampedSnapshotList {
 inline void SnapshotImpl::Deleter::operator()(SnapshotImpl* snap) const {
   if (snap->cached_snapshot == nullptr) {
     std::scoped_lock<std::mutex> l(snap->list_->lock);
+    snap->list_->count_--;
     snap->prev_->next_ = snap->next_;
     snap->next_->prev_ = snap->prev_;
     snap->list_->deleteitem = true;
-    snap->list_->count_--;
   }
   delete snap;
 }
