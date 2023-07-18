@@ -3717,10 +3717,9 @@ SnapshotImpl* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary,
   if (!is_snapshot_supported_) {
     return nullptr;
   }
-  int64_t unix_time = 0;
   SnapshotImpl* s = new SnapshotImpl;
 #ifdef SPEEDB_SNAP_OPTIMIZATION
-  if (RefSnapshot(unix_time, is_write_conflict_boundary, s)) {
+  if (RefSnapshot(is_write_conflict_boundary, s)) {
     return s;
   }
 #endif
@@ -3730,14 +3729,7 @@ SnapshotImpl* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary,
   } else {
     mutex_.AssertHeld();
   }
-  // returns null if the underlying memtable does not support snapshot.
-  if (!is_snapshot_supported_) {
-    if (lock) {
-      mutex_.Unlock();
-    }
-    delete s;
-    return nullptr;
-  }
+  int64_t unix_time = 0;
   immutable_db_options_.clock->GetCurrentTime(&unix_time)
       .PermitUncheckedError();  // Ignore error
   auto snapshot_seq = GetLastPublishedSequence();
@@ -3890,12 +3882,13 @@ bool DBImpl::UnRefSnapshot(const SnapshotImpl* snapshot,
   return false;
 }
 
-bool DBImpl::RefSnapshot(int64_t unix_time, bool is_write_conflict_boundary,
+bool DBImpl::RefSnapshot(bool is_write_conflict_boundary,
                          SnapshotImpl* snapshot) {
   std::shared_ptr<SnapshotImpl> shared_snap = snapshots_.last_snapshot_;
   if (shared_snap &&
       shared_snap->GetSequenceNumber() == GetLastPublishedSequence() &&
       shared_snap->is_write_conflict_boundary_ == is_write_conflict_boundary) {
+    int64_t unix_time;
     immutable_db_options_.clock->GetCurrentTime(&unix_time)
         .PermitUncheckedError();  // Ignore error
     snapshot->cached_snapshot = shared_snap;

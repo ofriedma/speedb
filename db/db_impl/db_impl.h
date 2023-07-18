@@ -349,7 +349,7 @@ class DBImpl : public DB {
   // Returns true if the snapshot has not been deleted from SnapshotList
   bool UnRefSnapshot(const SnapshotImpl* snapshot, bool& is_cached_snapshot);
   // true if the snapshot provided has been referenced, otherwise false
-  bool RefSnapshot(int64_t unix_time, bool is_write_conflict_boundary,
+  bool RefSnapshot(bool is_write_conflict_boundary,
                    SnapshotImpl* snapshot);
   virtual void ReleaseSnapshot(const Snapshot* snapshot) override;
   // Create a timestamped snapshot. This snapshot can be shared by multiple

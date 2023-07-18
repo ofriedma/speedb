@@ -25,6 +25,11 @@ class SnapshotList;
 // Each SnapshotImpl corresponds to a particular sequence number.
 class SnapshotImpl : public Snapshot {
  public:
+  int64_t unix_time_;
+  uint64_t timestamp_;
+  // Will this snapshot be used by a Transaction to do write-conflict checking?
+  bool is_write_conflict_boundary_;
+
 #ifdef SPEEDB_SNAP_OPTIMIZATION
   std::atomic_uint64_t refcount = {1};
   std::shared_ptr<SnapshotImpl> cached_snapshot = nullptr;
@@ -32,10 +37,7 @@ class SnapshotImpl : public Snapshot {
   struct Deleter {
     inline void operator()(SnapshotImpl* snap) const;
   };
-  int64_t unix_time_;
-  uint64_t timestamp_;
   // Will this snapshot be used by a Transaction to do write-conflict checking?
-  bool is_write_conflict_boundary_;
 #endif
   SequenceNumber number_;  // const after creation
   // It indicates the smallest uncommitted data at the time the snapshot was
@@ -56,14 +58,7 @@ class SnapshotImpl : public Snapshot {
   SnapshotImpl* next_;
 
   SnapshotList* list_;  // just for sanity checks
-#ifndef SPEEDB_SNAP_OPTIMIZATION
-  int64_t unix_time_;
 
-  uint64_t timestamp_;
-
-  // Will this snapshot be used by a Transaction to do write-conflict checking?
-  bool is_write_conflict_boundary_;
-#endif
 };
 
 class SnapshotList {
@@ -122,7 +117,7 @@ class SnapshotList {
 
   SnapshotImpl* New(SnapshotImpl* s, SequenceNumber seq, uint64_t unix_time,
                     bool is_write_conflict_boundary,
-                    uint64_t ts = std::numeric_limits<uint64_t>::max()) {
+                    uint64_t ts = std::numeric_limits<uint64_t>::max(), const DB* db_impl = nullptr) {
 #ifdef SPEEDB_SNAP_OPTIMIZATION
     std::unique_lock<std::mutex> l(lock);
     logical_count_.fetch_add(1);
@@ -236,20 +231,17 @@ class SnapshotList {
     }
   }
 
+// How many snapshots in the SnapshotList
   uint64_t count() const { return count_; }
-#ifdef SPEEDB_SNAP_OPTIMIZATION
-  // changing count_ always under snapshot_list mutex
   uint64_t count_;
+  // How many snapshots in the system included those that created refcount
   uint64_t logical_count() const { return logical_count_; }
   std::atomic_uint64_t logical_count_;
-#endif
 
  private:
   // Dummy head of doubly-linked list of snapshots
   SnapshotImpl list_;
-#ifndef SPEEDB_SNAP_OPTIMIZATION
-  uint64_t count_;
-#endif
+
 };
 
 // All operations on TimestampedSnapshotList must be protected by db mutex.
