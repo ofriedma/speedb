@@ -183,7 +183,14 @@ class ThreadRocksDB
     template <typename Function, typename... Args>
     ThreadRocksDB(Function&& func, Args&&... args)
     {
+      #include <pthread.h>
+      cpu_set_t cpuset;
+      CPU_ZERO(&cpuset);
+      CPU_SET(0, &cpuset);
       thread_ = std::thread(std::forward<Function>(func), std::forward<Args>(args)...);
+      int rc = pthread_setaffinity_np(thread_.native_handle(),
+                                    sizeof(cpu_set_t), &cpuset);
+
     }
 
     ThreadRocksDB() {}
@@ -194,6 +201,7 @@ class ThreadRocksDB
     void join() {
       thread_.join();
     }
+
     void detach() {
       thread_.detach();
     }
