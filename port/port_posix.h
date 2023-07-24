@@ -15,6 +15,7 @@
 #include <iostream>
 #include "rocksdb/port_defs.h"
 #include "rocksdb/rocksdb_namespace.h"
+#include "rocksdb/env.h"
 
 // size_t printf formatting named in the manner of C99 standard formatting
 // strings such as PRIu64
@@ -183,14 +184,25 @@ class ThreadRocksDB
     template <typename Function, typename... Args>
     ThreadRocksDB(Function&& func, Args&&... args)
     {
+      /*
       #include <pthread.h>
       cpu_set_t cpuset;
       CPU_ZERO(&cpuset);
-      CPU_SET(0, &cpuset);
-      thread_ = std::thread(std::forward<Function>(func), std::forward<Args>(args)...);
-      int rc = pthread_setaffinity_np(thread_.native_handle(),
-                                    sizeof(cpu_set_t), &cpuset);
+      CPU_SET(5,&cpuset);
+      CPU_SET(8,&cpuset);
+      if (!cb) {
+        thread_ = std::thread(std::forward<Function>(func), std::forward<Args>(args)...);
+      } else {
 
+      }
+      int rc = pthread_setaffinity_np(thread_.native_handle(),                              sizeof(cpu_set_t), &cpuset);
+      */
+     std::function<std::thread(Function&& func, Args&&... args)>* cb = nullptr;
+      if (!cb) {
+        thread_ = std::thread(std::forward<Function>(func), std::forward<Args>(args)...);
+      } else {
+        thread_ = cb->operator()(std::forward<Function>(func), std::forward<Args>(args)...);
+      }
     }
 
     ThreadRocksDB() {}
