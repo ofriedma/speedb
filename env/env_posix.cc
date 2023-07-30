@@ -456,7 +456,7 @@ struct StartThreadState {
   void* arg;
 };
 
-static void* StartThreadWrapper(void* arg) {
+[[maybe_unused]]static void* StartThreadWrapper(void* arg) {
   StartThreadState* state = reinterpret_cast<StartThreadState*>(arg);
   state->user_function(state->arg);
   delete state;
@@ -468,11 +468,16 @@ void PosixEnv::StartThread(void (*function)(void* arg), void* arg) {
   StartThreadState* state = new StartThreadState;
   state->user_function = function;
   state->arg = arg;
+  port::Thread thr(function, arg);
+/*
   ThreadPoolImpl::PthreadCall(
       "start thread", pthread_create(&t, nullptr, &StartThreadWrapper, state));
   ThreadPoolImpl::PthreadCall("lock", pthread_mutex_lock(&mu_));
-  threads_to_join_.push_back(t);
+  */
+  threads_to_join_.push_back(thr.native_handle());
+  /*
   ThreadPoolImpl::PthreadCall("unlock", pthread_mutex_unlock(&mu_));
+  */
 }
 
 void PosixEnv::WaitForJoin() {

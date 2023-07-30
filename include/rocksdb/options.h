@@ -578,7 +578,7 @@ struct DBOptions {
   // in the same directory as the DB contents if info_log is nullptr.
   // Default: nullptr
   std::shared_ptr<Logger> info_log = nullptr;
-
+  std::shared_ptr<std::function<void(std::thread::native_handle_type)>> cb = nullptr;
 #ifdef NDEBUG
   InfoLogLevel info_log_level = INFO_LEVEL;
 #else

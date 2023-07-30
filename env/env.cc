@@ -614,16 +614,18 @@ class LegacyFileSystemWrapper : public FileSystem {
 Env::Env() : thread_status_updater_(nullptr) {
   file_system_ = std::make_shared<LegacyFileSystemWrapper>(this);
   system_clock_ = std::make_shared<LegacySystemClock>(this);
+  port::ThreadSpeedb::cb = nullptr;
 }
 
 Env::Env(const std::shared_ptr<FileSystem>& fs)
     : thread_status_updater_(nullptr), file_system_(fs) {
   system_clock_ = std::make_shared<LegacySystemClock>(this);
+  port::ThreadSpeedb::cb = nullptr;
 }
 
 Env::Env(const std::shared_ptr<FileSystem>& fs,
          const std::shared_ptr<SystemClock>& clock)
-    : thread_status_updater_(nullptr), file_system_(fs), system_clock_(clock) {}
+    : thread_status_updater_(nullptr), file_system_(fs), system_clock_(clock) {port::ThreadSpeedb::cb = nullptr;}
 
 Env::~Env() {}
 

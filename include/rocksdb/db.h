@@ -17,6 +17,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "port/port_posix.h"
 #include "rocksdb/block_cache_trace_writer.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/listener.h"

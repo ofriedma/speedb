@@ -16,7 +16,7 @@
 
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
-
+#include "rocksdb/env.h"
 using ROCKSDB_NAMESPACE::DB;
 using ROCKSDB_NAMESPACE::Options;
 using ROCKSDB_NAMESPACE::ReadOptions;
@@ -28,16 +28,27 @@ std::string kDBPath = "C:\\Windows\\TEMP\\speedb_is_awesome_example";
 #else
 std::string kDBPath = "/tmp/speedb_is_awesome_example";
 #endif
+void f(std::thread::native_handle_type thr) {
+  #include "pthread.h"
+  std::cout << thr << std::endl;
+      cpu_set_t cpuset;
+      CPU_ZERO(&cpuset);
+      CPU_SET(10, &cpuset);
 
+      int rc = pthread_setaffinity_np(thr,
+                                      sizeof(cpu_set_t), &cpuset);
+
+}
 int main() {
   // Open the storage
   DB* db = nullptr;
   Options options;
+  options.cb = std::make_shared<std::function<void(std::thread::native_handle_type)>>(f);
   // create the DB if it's not already present
   options.create_if_missing = true;
   Status s = DB::Open(options, kDBPath, &db);
   assert(s.ok());
-
+  while(true) {
   // append new entry
   std::string key = "key_1";
   std::string put_value = "Speedb is awesome!";
@@ -50,7 +61,7 @@ int main() {
   assert(s.ok());
   assert(get_value == put_value);
   std::cout << get_value << std::endl;
-
+  }
   // close DB
   s = db->Close();
   assert(s.ok());

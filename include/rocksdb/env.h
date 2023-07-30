@@ -24,7 +24,7 @@
 #include <memory>
 #include <string>
 #include <vector>
-
+#include <thread>
 #include "rocksdb/customizable.h"
 #include "rocksdb/functor_wrapper.h"
 #include "rocksdb/port_defs.h"

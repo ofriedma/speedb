@@ -47,7 +47,7 @@ extern const bool kDefaultToAdaptiveMutex = false;
 #endif
 
 namespace port {
-
+std::shared_ptr<std::function<void(std::thread::native_handle_type)>> ThreadSpeedb::cb;
 static int PthreadCall(const char* label, int result) {
   if (result != 0 && result != ETIMEDOUT && result != EBUSY) {
     fprintf(stderr, "pthread %s: %s\n", label, errnoStr(result).c_str());
