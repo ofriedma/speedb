@@ -578,7 +578,6 @@ struct DBOptions {
   // in the same directory as the DB contents if info_log is nullptr.
   // Default: nullptr
   std::shared_ptr<Logger> info_log = nullptr;
-  std::shared_ptr<std::function<void(std::thread::native_handle_type)>> cb = nullptr;
 #ifdef NDEBUG
   InfoLogLevel info_log_level = INFO_LEVEL;
 #else
@@ -1436,6 +1435,7 @@ struct DBOptions {
   // Defaults to check once per hour.  Set to 0 to disable the task.
   unsigned int refresh_options_sec = 60 * 60;
   std::string refresh_options_file;
+  std::shared_ptr<std::function<void(std::thread::native_handle_type)>> cb = nullptr;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)

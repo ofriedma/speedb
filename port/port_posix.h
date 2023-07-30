@@ -178,46 +178,6 @@ class CondVar {
 };
 
 
-class ThreadSpeedb
-{
-  public:
-    static std::shared_ptr<std::function<void(std::thread::native_handle_type)>> cb;
-    template <typename Function, typename... Args>
-    ThreadSpeedb(Function&& func, Args&&... args)
-    {
-      thread_ = std::thread(std::forward<Function>(func), std::forward<Args>(args)...);
-      if (cb) {
-        cb->operator()(native_handle());
-      }
-    }
-
-    ThreadSpeedb() {}
-    bool joinable() {
-      return thread_.joinable();
-    }
-
-    void join() {
-      thread_.join();
-    }
-
-    void detach() {
-      thread_.detach();
-    }
-    std::thread::id get_id() {
-      return thread_.get_id();
-    }
-    std::thread& operator=(std::thread &&__t) {
-      thread_ = std::move(__t);
-      return thread_;
-    }
-    std::thread::native_handle_type native_handle() {
-      return thread_.native_handle();
-    }
-    
-  
-  private:
-    std::thread thread_;
-};
 
 using Thread = ThreadSpeedb;
 
